@@ -1,0 +1,43 @@
+# Secrets
+.env
+.env.*
+!.env.example
+token.json
+credentials.json
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+venv/
+.venv/
+
+# Playwright / Chrome profile
+playwright_profile/
+
+# Recordings / generated files
+*.webm
+*.mp4
+data/recordings/
+data/transcripts/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
