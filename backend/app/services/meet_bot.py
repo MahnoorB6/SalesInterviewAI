@@ -1,3 +1,4 @@
+
 import asyncio
 import os
 
@@ -9,7 +10,7 @@ from app.services.elevenlabs_agent import run_alena
 
 
 # ============================================================
-# CONFIGURATION
+# PATHS
 # ============================================================
 
 BASE_DIR = os.path.dirname(
@@ -20,88 +21,44 @@ BASE_DIR = os.path.dirname(
     )
 )
 
-PROFILE_DIR = os.path.join(
-    BASE_DIR,
-    "playwright_profile",
-)
+PROFILE_DIR = os.path.join(BASE_DIR, "playwright_profile")
+RECORDING_DIR = os.path.join(BASE_DIR, "data", "recordings")
 
-RECORDING_DIR = os.path.join(
-    BASE_DIR,
-    "data",
-    "recordings",
-)
-
-os.makedirs(
-    RECORDING_DIR,
-    exist_ok=True,
-)
+os.makedirs(PROFILE_DIR, exist_ok=True)
+os.makedirs(RECORDING_DIR, exist_ok=True)
 
 
 # ============================================================
-# DATABASE UPDATE
+# UPDATE INTERVIEW FILES
 # ============================================================
 
-def update_interview_files(
-    interview_id: int,
-    transcript_path=None,
-    recording_path=None,
-):
-
+def update_interview_files(interview_id, transcript_path=None, recording_path=None):
     db = SessionLocal()
 
     try:
-
-        interview = (
-            db.query(Interview)
-            .filter(
-                Interview.id == interview_id
-            )
-            .first()
-        )
+        interview = db.query(Interview).filter(
+            Interview.id == interview_id
+        ).first()
 
         if not interview:
-
-            print(
-                f"[DATABASE] Interview "
-                f"#{interview_id} not found."
-            )
-
+            print(f"[DB] Interview #{interview_id} not found.")
             return
 
         if transcript_path:
-
-            interview.transcript_path = (
-                transcript_path
-            )
-
-            print(
-                f"[DATABASE] Transcript saved for "
-                f"interview #{interview_id}"
-            )
+            interview.transcript_path = transcript_path
 
         if recording_path:
-
-            interview.recording_path = (
-                recording_path
-            )
-
-            print(
-                f"[DATABASE] Recording saved for "
-                f"interview #{interview_id}"
-            )
+            interview.recording_path = recording_path
 
         db.commit()
 
-    except Exception as error:
+        print(f"[DB] Interview #{interview_id} files updated.")
 
+    except Exception as e:
         db.rollback()
-
-        print(
-            f"[DATABASE ERROR] {error}"
-        )
+        print(f"[DB ERROR] {e}")
 
     finally:
-
         db.close()
 
 
@@ -110,711 +67,586 @@ def update_interview_files(
 # ============================================================
 
 async def leave_google_meet(page):
+    print("[MEET] Leaving Google Meet...")
 
-    print(
-        "\n[MEET] Ending Google Meet call..."
-    )
+    try:
+        # Try normal Leave call button
+        buttons = page.get_by_role("button")
 
-    leave_selectors = [
+        count = await buttons.count()
 
-        page.get_by_role(
-            "button",
-            name="Leave call",
-        ),
+        for i in range(count):
+            try:
+                button = buttons.nth(i)
 
-        page.get_by_role(
-            "button",
-            name="Leave meeting",
-        ),
+                label = await button.get_attribute("aria-label")
 
-        page.get_by_text(
-            "Leave call",
-            exact=True,
-        ),
+                if label:
+                    label_lower = label.lower()
 
-    ]
+                    if (
+                        "leave call" in label_lower
+                        or "leave meeting" in label_lower
+                    ):
+                        await button.click()
+                        print("[MEET] Leave button clicked.")
+                        return
 
-    for selector in leave_selectors:
+            except Exception:
+                continue
 
-        try:
+        # Fallback: press Escape
+        await page.keyboard.press("Escape")
 
-            if await selector.count() > 0:
-
-                await selector.first.click()
-
-                print(
-                    "[MEET] Leave button clicked."
-                )
-
-                await page.wait_for_timeout(
-                    3000
-                )
-
-                return True
-
-        except Exception as error:
-
-            print(
-                f"[MEET] Leave attempt failed: "
-                f"{error}"
-            )
-
-    print(
-        "[MEET] Leave button was not found."
-    )
-
-    return False
+    except Exception as e:
+        print(f"[MEET] Leave error: {e}")
 
 
 # ============================================================
-# GOOGLE MEET BOT + ALENA
+# MAIN MEET BOT
 # ============================================================
 
-async def run_meet_bot(
-    meet_link: str,
-    interview_id: int,
-):
+async def run_meet_bot(interview_id, meet_link):
 
+    print()
     print("=" * 70)
-    print(
-        "SalesInterviewAI - ALENA AUTOMATIC MEET BOT"
-    )
+    print("SalesInterviewAI - ALENA AUTOMATIC MEET BOT")
     print("=" * 70)
-
-    print(
-        f"Interview ID  : {interview_id}"
-    )
-
-    print(
-        f"Meet link     : {meet_link}"
-    )
-
-    print(
-        f"Chrome profile: {PROFILE_DIR}"
-    )
-
-    print(
-        f"Recording dir : {RECORDING_DIR}"
-    )
-
+    print(f"Interview ID: {interview_id}")
+    print(f"Meet link: {meet_link}")
+    print(f"Chrome profile: {PROFILE_DIR}")
+    print(f"Recording dir: {RECORDING_DIR}")
     print("=" * 70)
 
+    video_path = None
+    transcript_path = None
 
     async with async_playwright() as p:
 
+        browser = None
         context = None
         page = None
-        recording_path = None
-        transcript_path = None
 
         try:
 
             # ====================================================
-            # START GOOGLE CHROME
+            # 1. START GOOGLE CHROME
             # ====================================================
 
-            print(
-                "\n[1] Starting Google Chrome..."
-            )
+            print("[1] Starting Google Chrome...")
 
             context = await p.chromium.launch_persistent_context(
-
                 user_data_dir=PROFILE_DIR,
-
                 channel="chrome",
-
                 headless=False,
 
+                # Recording
                 record_video_dir=RECORDING_DIR,
-
                 record_video_size={
                     "width": 1280,
-                    "height": 720,
+                    "height": 720
                 },
 
+                # IMPORTANT:
+                # Force Chrome to start small and NOT maximized
                 args=[
-                    "--start-maximized",
+                    "--window-size=900,600",
+                    "--window-position=50,50",
+                    "--start-normal",
 
-                    "--disable-blink-features="
-                    "AutomationControlled",
+                    "--disable-blink-features=AutomationControlled",
 
                     "--use-fake-ui-for-media-stream",
 
-                    "--autoplay-policy="
-                    "no-user-gesture-required",
+                    "--autoplay-policy=no-user-gesture-required",
                 ],
 
                 viewport={
-                    "width": 1280,
-                    "height": 720,
+                    "width": 900,
+                    "height": 600
                 },
             )
 
-            print(
-                "[CHROME] Google Chrome started."
-            )
-
+            print("[CHROME] Google Chrome started.")
 
             # ====================================================
-            # GET PAGE
+            # 2. OPEN GOOGLE MEET
             # ====================================================
 
-            if context.pages:
+            print("[2] Opening Google Meet...")
 
-                page = context.pages[0]
-
-            else:
-
-                page = await context.new_page()
-
-
-            # ====================================================
-            # OPEN GOOGLE MEET
-            # ====================================================
-
-            print(
-                "\n[2] Opening Google Meet..."
-            )
+            page = context.pages[0] if context.pages else await context.new_page()
 
             await page.goto(
                 meet_link,
                 wait_until="domcontentloaded",
-                timeout=60000,
+                timeout=60000
             )
 
-            print(
-                "[MEET] Google Meet page opened."
-            )
+            print("[MEET] Google Meet page opened.")
 
-            await page.wait_for_timeout(
-                5000
-            )
-
+            await page.wait_for_timeout(5000)
 
             # ====================================================
-            # TURN CAMERA OFF
+            # FORCE WINDOW SMALL / NORMAL
             # ====================================================
 
-            print(
-                "\n[3] Turning camera off..."
-            )
+            print("[MEET] Forcing browser window to normal size...")
+
+            try:
+                await page.evaluate("""
+                    () => {
+                        window.resizeTo(900, 600);
+                        window.moveTo(50, 50);
+                    }
+                """)
+            except Exception as e:
+                print(f"[MEET] Browser resize script skipped: {e}")
+
+            # ====================================================
+            # ZOOM OUT GOOGLE MEET
+            # ====================================================
+
+            print("[MEET] Zooming Meet out...")
+
+            try:
+                await page.keyboard.press("Control+-")
+                await page.keyboard.press("Control+-")
+                await page.keyboard.press("Control+-")
+            except Exception as e:
+                print(f"[MEET] Zoom error: {e}")
+
+            await page.wait_for_timeout(2000)
+
+            # ====================================================
+            # IMPORTANT DEBUG PAUSE
+            # ====================================================
+
+            print()
+            print("=" * 70)
+            print("GOOGLE MEET WINDOW SHOULD NOW BE SMALL")
+            print("=" * 70)
+            print()
+            print("Before continuing, check Google Meet Audio settings.")
+            print()
+            print("Set:")
+            print("Microphone -> Voicemeeter Out B1")
+            print("Speaker     -> CABLE Input")
+            print()
+            print("Then continue with the bot.")
+            print("=" * 70)
+
+            # ====================================================
+            # 3. TURN CAMERA OFF
+            # ====================================================
+
+            print("[3] Turning camera off...")
 
             try:
 
-                camera_button = page.get_by_role(
-                    "button",
-                    name="Turn off camera",
-                )
+                camera_buttons = page.get_by_role("button")
 
-                if await camera_button.count() > 0:
+                count = await camera_buttons.count()
 
-                    await camera_button.first.click()
+                camera_clicked = False
 
-                    print(
-                        "[MEET] Camera turned OFF."
-                    )
+                for i in range(count):
 
-                else:
+                    try:
 
-                    print(
-                        "[MEET] Camera button not found."
-                    )
+                        button = camera_buttons.nth(i)
 
-            except Exception as error:
+                        label = await button.get_attribute("aria-label")
 
-                print(
-                    f"[MEET] Camera check failed: "
-                    f"{error}"
-                )
+                        if label:
 
+                            label_lower = label.lower()
+
+                            if (
+                                "turn off camera" in label_lower
+                                or "camera" in label_lower
+                            ):
+
+                                await button.click()
+
+                                print("[MEET] Camera button clicked.")
+
+                                camera_clicked = True
+
+                                break
+
+                    except Exception:
+                        continue
+
+                if not camera_clicked:
+                    print("[MEET] Camera button not found.")
+
+            except Exception as e:
+                print(f"[MEET] Camera error: {e}")
 
             # ====================================================
-            # MICROPHONE
+            # 4. CHECK MICROPHONE
             # ====================================================
 
-            print(
-                "\n[4] Checking microphone..."
-            )
+            print("[4] Checking microphone...")
 
             try:
 
-                mute_button = page.get_by_role(
-                    "button",
-                    name="Turn off microphone",
-                )
+                mic_buttons = page.get_by_role("button")
 
-                if await mute_button.count() > 0:
+                count = await mic_buttons.count()
 
-                    print(
-                        "[MEET] Microphone is ON."
-                    )
+                mic_found = False
 
-                else:
+                for i in range(count):
 
-                    print(
-                        "[MEET] Microphone button "
-                        "not detected."
-                    )
+                    try:
 
-            except Exception as error:
+                        button = mic_buttons.nth(i)
 
-                print(
-                    f"[MEET] Microphone check failed: "
-                    f"{error}"
-                )
+                        label = await button.get_attribute("aria-label")
 
+                        if label:
+
+                            label_lower = label.lower()
+
+                            if "microphone" in label_lower:
+
+                                print(f"[MEET] Microphone state: {label}")
+
+                                mic_found = True
+
+                                break
+
+                    except Exception:
+                        continue
+
+                if not mic_found:
+                    print("[MEET] Microphone button not found.")
+
+            except Exception as e:
+                print(f"[MEET] Microphone check error: {e}")
 
             # ====================================================
-            # JOIN MEETING
+            # 5. LOOK FOR JOIN BUTTON
             # ====================================================
 
-            print(
-                "\n[5] Looking for Join button..."
-            )
+            print("[5] Looking for Join button...")
 
-            join_selectors = [
-
-                page.get_by_role(
-                    "button",
-                    name="Join now",
-                ),
-
-                page.get_by_role(
-                    "button",
-                    name="Ask to join",
-                ),
-
-                page.get_by_text(
-                    "Join now",
-                    exact=True,
-                ),
-
-                page.get_by_text(
-                    "Ask to join",
-                    exact=True,
-                ),
-
-            ]
-
+            await page.wait_for_timeout(2000)
 
             joined = False
 
+            # Try "Join now"
+            try:
 
-            for selector in join_selectors:
+                join_button = page.get_by_role(
+                    "button",
+                    name="Join now"
+                )
+
+                if await join_button.count() > 0:
+
+                    await join_button.first.click()
+
+                    print("[MEET] JOIN button clicked.")
+
+                    joined = True
+
+            except Exception:
+                pass
+
+            # Try "Ask to join"
+            if not joined:
 
                 try:
 
-                    if await selector.count() > 0:
+                    ask_button = page.get_by_role(
+                        "button",
+                        name="Ask to join"
+                    )
 
-                        await selector.first.click()
+                    if await ask_button.count() > 0:
 
-                        print(
-                            "[MEET] JOIN button clicked."
-                        )
+                        await ask_button.first.click()
+
+                        print("[MEET] ASK TO JOIN button clicked.")
 
                         joined = True
 
-                        break
+                except Exception:
+                    pass
 
-                except Exception as error:
+            # Fallback text search
+            if not joined:
 
-                    print(
-                        f"[MEET] Join attempt failed: "
-                        f"{error}"
-                    )
+                try:
 
-                    continue
+                    buttons = page.get_by_role("button")
 
+                    count = await buttons.count()
+
+                    for i in range(count):
+
+                        try:
+
+                            button = buttons.nth(i)
+
+                            text = await button.inner_text()
+
+                            text_lower = text.lower()
+
+                            if (
+                                "join now" in text_lower
+                                or "ask to join" in text_lower
+                            ):
+
+                                await button.click()
+
+                                print("[MEET] Join button clicked.")
+
+                                joined = True
+
+                                break
+
+                        except Exception:
+                            continue
+
+                except Exception as e:
+                    print(f"[MEET] Join search error: {e}")
 
             if not joined:
 
-                print(
-                    "[MEET] Join button was not found."
-                )
-
-                print(
-                    "[MEET] Checking whether "
-                    "already inside the meeting..."
-                )
-
-            else:
-
-                print(
-                    "[MEET] Waiting for meeting..."
-                )
-
+                print("[MEET] Join button not found.")
+                print("[MEET] Please check the browser manually.")
 
             # ====================================================
-            # WAIT FOR MEET TO LOAD
+            # WAIT FOR MEETING
             # ====================================================
 
-            await page.wait_for_timeout(
-                10000
-            )
+            print("[MEET] Waiting for meeting...")
 
+            await page.wait_for_timeout(10000)
 
-            # ====================================================
-            # MEET READY
-            # ====================================================
-
-            print(
-                "\n" + "=" * 70
-            )
-
-            print(
-                "GOOGLE MEET READY"
-            )
-
-            print(
-                "=" * 70
-            )
-
-            print(
-                f"Interview #{interview_id}"
-            )
-
-            print(
-                "Chrome is running."
-            )
-
-            print(
-                "Google Meet is open."
-            )
-
-            print(
-                "Bot has joined/attempted to join."
-            )
-
-            print(
-                "=" * 70
-            )
-
+            print()
+            print("=" * 70)
+            print("GOOGLE MEET READY")
+            print("=" * 70)
+            print()
 
             # ====================================================
             # START ALENA
             # ====================================================
 
-            print(
-                "\n" + "=" * 70
-            )
+            print("STARTING ALENA")
 
-            print(
-                "STARTING ALENA"
-            )
+            print(f"Interview ID: {interview_id}")
 
-            print(
-                "=" * 70
-            )
+            try:
 
-            print(
-                "[ALENA] Connecting to ElevenLabs..."
-            )
-
-            print(
-                "[ALENA] Starting audio interface..."
-            )
-
-            print(
-                "[ALENA] Interview starting..."
-            )
-
-            print(
-                "=" * 70
-            )
-
-
-            # ----------------------------------------------------
-            # run_alena() is synchronous.
-            #
-            # Run it in a worker thread so Playwright remains
-            # active and Google Meet stays open.
-            # ----------------------------------------------------
-
-            alena_result = await asyncio.to_thread(
-
-                run_alena,
-
-                interview_id=interview_id,
-
-            )
-
-
-            # ====================================================
-            # ALENA SESSION ENDED
-            # ====================================================
-
-            print(
-                "\n" + "=" * 70
-            )
-
-            print(
-                "ALENA SESSION ENDED"
-            )
-
-            print(
-                "=" * 70
-            )
-
-
-            if isinstance(
-                alena_result,
-                dict,
-            ):
-
-                conversation_id = (
-                    alena_result.get(
-                        "conversation_id"
-                    )
+                # run_alena is synchronous, so run it in a thread
+                alena_result = await asyncio.to_thread(
+                    run_alena,
+                    interview_id
                 )
 
-                transcript_path = (
-                    alena_result.get(
+                # ====================================================
+                # PROCESS ALENA RESULT
+                # ====================================================
+
+                if isinstance(alena_result, dict):
+
+                    transcript_path = alena_result.get(
                         "transcript_path"
                     )
-                )
 
-            else:
+                elif isinstance(alena_result, str):
 
-                conversation_id = (
-                    alena_result
-                )
+                    transcript_path = alena_result
 
+                print("[ALENA] Interview finished.")
 
-            print(
-                f"Conversation ID: "
-                f"{conversation_id}"
-            )
+            except Exception as e:
 
-
-            if transcript_path:
-
-                print(
-                    f"Transcript: "
-                    f"{transcript_path}"
-                )
-
-
-            print(
-                "=" * 70
-            )
-
+                print()
+                print("=" * 70)
+                print("[ALENA ERROR]")
+                print("=" * 70)
+                print(e)
+                print("=" * 70)
 
             # ====================================================
-            # LEAVE GOOGLE MEET
+            # LEAVE MEETING
             # ====================================================
 
-            await leave_google_meet(
-                page
-            )
+            await leave_google_meet(page)
 
-
-            # ====================================================
-            # UPDATE DATABASE WITH TRANSCRIPT
-            # ====================================================
-
-            update_interview_files(
-
-                interview_id=interview_id,
-
-                transcript_path=(
-                    transcript_path
-                ),
-
-            )
-
-
-            print(
-                "\n[MEET BOT] Interview "
-                "workflow finished."
-            )
-
-
-        except Exception as error:
+            await page.wait_for_timeout(3000)
 
             # ====================================================
-            # IMPORTANT DEBUG ERROR
+            # GET VIDEO PATH
             # ====================================================
 
-            print(
-                "\n" + "=" * 70
-            )
+            try:
 
-            print(
-                "[MEET BOT ERROR]"
-            )
+                video_path = await page.video.path()
 
-            print(
-                "=" * 70
-            )
+                print(f"[RECORDING] Video: {video_path}")
 
-            print(
-                f"Exception type: "
-                f"{type(error).__name__}"
-            )
+            except Exception as e:
 
-            print(
-                f"Exception repr: "
-                f"{repr(error)}"
-            )
+                print(f"[RECORDING] Video path unavailable: {e}")
 
-            print(
-                f"Exception message: "
-                f"{str(error)}"
-            )
+        except Exception as e:
 
-            print(
-                "=" * 70
-            )
-
-            raise
-
+            print()
+            print("=" * 70)
+            print("[MEET BOT ERROR]")
+            print("=" * 70)
+            print(e)
+            print("=" * 70)
 
         finally:
 
             # ====================================================
-            # DEBUG MODE
-            #
-            # DO NOT CLOSE CHROME IMMEDIATELY.
-            #
-            # This allows us to inspect Google Meet after
-            # ElevenLabs fails.
+            # UPDATE DATABASE
             # ====================================================
 
-            if context:
+            try:
 
-                print(
-                    "\n" + "=" * 70
+                update_interview_files(
+                    interview_id=interview_id,
+                    transcript_path=transcript_path,
+                    recording_path=video_path
                 )
 
-                print(
-                    "[DEBUG] Google Chrome will remain OPEN."
-                )
+            except Exception as e:
 
-                print(
-                    "[DEBUG] Inspect the Google Meet window."
-                )
+                print(f"[DB] Could not update files: {e}")
 
-                print(
-                    "[DEBUG] When you are finished,"
-                )
+            # ====================================================
+            # KEEP CHROME OPEN FOR DEBUGGING
+            # ====================================================
 
-                print(
-                    "[DEBUG] press ENTER in this terminal."
-                )
+            if page:
 
-                print(
-                    "=" * 70
-                )
-
+                print()
+                print("=" * 70)
+                print("CHROME DEBUG MODE")
+                print("=" * 70)
+                print()
+                print("Chrome will remain open.")
+                print("Press ENTER in this terminal to close Chrome.")
+                print("=" * 70)
 
                 try:
+                    await asyncio.to_thread(input)
+                except Exception:
+                    pass
 
-                    await asyncio.to_thread(
-                        input
-                    )
+            # ====================================================
+            # CLOSE CHROME
+            # ====================================================
 
-                except Exception as error:
+            try:
 
-                    print(
-                        f"[DEBUG] Input wait error: "
-                        f"{error}"
-                    )
-
-
-                # ====================================================
-                # CLOSE CHROME AFTER ENTER
-                # ====================================================
-
-                print(
-                    "\n[MEET BOT] Closing Google Chrome..."
-                )
-
-                try:
-
-                    # ------------------------------------------------
-                    # Playwright finalizes the recorded video when
-                    # the browser context is closed.
-                    # ------------------------------------------------
+                if context:
 
                     await context.close()
 
-                    print(
-                        "[MEET BOT] Google Chrome closed."
-                    )
+                    print("[CHROME] Chrome closed.")
 
-                except Exception as error:
+            except Exception as e:
 
-                    print(
-                        f"[MEET BOT] Chrome close error: "
-                        f"{error}"
-                    )
-
-
-                # ====================================================
-                # GET FINAL RECORDING PATH
-                # ====================================================
-
-                if page:
-
-                    try:
-
-                        video = page.video
-
-                        if video:
-
-                            recording_path = (
-                                await video.path()
-                            )
-
-                            print(
-                                "[RECORDING] Saved:"
-                            )
-
-                            print(
-                                recording_path
-                            )
-
-                    except Exception as error:
-
-                        print(
-                            "[RECORDING] Could not "
-                            "retrieve recording path:"
-                        )
-
-                        print(
-                            error
-                        )
-
-
-                # ====================================================
-                # SAVE RECORDING PATH TO DATABASE
-                # ====================================================
-
-                if recording_path:
-
-                    update_interview_files(
-
-                        interview_id=interview_id,
-
-                        recording_path=(
-                            recording_path
-                        ),
-
-                    )
+                print(f"[CHROME] Close error: {e}")
 
 
 # ============================================================
 # MANUAL TEST
 # ============================================================
 
-async def open_meet(
-    meet_link: str,
-):
+async def open_meet(meet_link):
 
-    await run_meet_bot(
-        meet_link=meet_link,
-        interview_id=0,
-    )
+    print()
+    print("=" * 70)
+    print("SalesInterviewAI - MANUAL GOOGLE MEET TEST")
+    print("=" * 70)
+    print(f"Meet link: {meet_link}")
+    print("=" * 70)
+
+    async with async_playwright() as p:
+
+        context = await p.chromium.launch_persistent_context(
+            user_data_dir=PROFILE_DIR,
+            channel="chrome",
+            headless=False,
+
+            args=[
+                "--window-size=900,600",
+                "--window-position=50,50",
+                "--start-normal",
+                "--disable-blink-features=AutomationControlled",
+                "--use-fake-ui-for-media-stream",
+                "--autoplay-policy=no-user-gesture-required",
+            ],
+
+            viewport={
+                "width": 900,
+                "height": 600
+            },
+        )
+
+        page = context.pages[0] if context.pages else await context.new_page()
+
+        await page.goto(
+            meet_link,
+            wait_until="domcontentloaded",
+            timeout=60000
+        )
+
+        await page.wait_for_timeout(5000)
+
+        # Force normal/small window
+        try:
+
+            await page.evaluate("""
+                () => {
+                    window.resizeTo(900, 600);
+                    window.moveTo(50, 50);
+                }
+            """)
+
+        except Exception:
+            pass
+
+        # Zoom out
+        try:
+
+            await page.keyboard.press("Control+-")
+            await page.keyboard.press("Control+-")
+            await page.keyboard.press("Control+-")
+
+        except Exception:
+            pass
+
+        print()
+        print("=" * 70)
+        print("MEET OPENED")
+        print("=" * 70)
+        print()
+        print("Now configure Google Meet:")
+        print()
+        print("Settings -> Audio")
+        print()
+        print("Microphone -> Voicemeeter Out B1")
+        print("Speaker     -> CABLE Input")
+        print()
+        print("Press ENTER here when finished.")
+        print("=" * 70)
+
+        await asyncio.to_thread(input)
+
+        await context.close()
 
 
 # ============================================================
@@ -823,20 +655,26 @@ async def open_meet(
 
 if __name__ == "__main__":
 
+    print()
+    print("=" * 70)
+    print("SalesInterviewAI - GOOGLE MEET BOT")
+    print("=" * 70)
+    print()
+
     meet_link = input(
         "Enter Google Meet link: "
     ).strip()
 
-
     if not meet_link:
 
-        print(
-            "ERROR: Google Meet link is required."
+        print("No Meet link entered.")
+
+    else:
+
+        asyncio.run(
+            run_meet_bot(
+                interview_id=0,
+                meet_link=meet_link
+            )
         )
 
-        raise SystemExit(1)
-
-
-    asyncio.run(
-        open_meet(meet_link)
-    )

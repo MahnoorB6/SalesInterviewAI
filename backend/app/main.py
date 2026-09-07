@@ -1,5 +1,8 @@
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.candidates import router as candidates_router
 from app.api.interviews import router as interviews_router
@@ -15,6 +18,21 @@ app = FastAPI(
     title="SalesInterviewAI",
     description="AI Sales Interview Platform with Alena",
     version="1.0.0",
+)
+
+
+# ============================================================
+# SESSION MIDDLEWARE
+# ============================================================
+
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=os.getenv(
+        "SESSION_SECRET_KEY",
+        "salesinterviewai-dev-secret-change-this",
+    ),
+    same_site="lax",
+    https_only=False,
 )
 
 
