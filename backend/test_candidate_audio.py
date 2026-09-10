@@ -1,33 +1,38 @@
+import time
 import pyaudio
-import struct
 
-DEVICE = 24
-RATE = 16000
-CHUNK = 1024
+DEVICE = 64
+RATE = 48000
+CHANNELS = 2
+CHUNK = 2048
 
 p = pyaudio.PyAudio()
 
-print("Opening device 24...")
+print("Opening CABLE Output...")
 stream = p.open(
     format=pyaudio.paInt16,
-    channels=1,
+    channels=CHANNELS,
     rate=RATE,
     input=True,
     input_device_index=DEVICE,
     frames_per_buffer=CHUNK
 )
 
-print("LISTENING - speak normally for 10 seconds")
 print()
+print("========================================")
+print(" RECORDING FOR 10 SECONDS")
+print(" SPEAK INTO THE GOOGLE MEET MIC NOW")
+print("========================================")
 
-for _ in range(int(RATE / CHUNK * 10)):
-    data = stream.read(CHUNK, exception_on_overflow=False)
-    samples = struct.unpack("<" + "h" * (len(data) // 2), data)
-    rms = int((sum(x * x for x in samples) / len(samples)) ** 0.5)
-    print(f"\rRMS: {rms:6d}", end="")
+for seconds_left in range(10, 0, -1):
+    print(f"Recording... {seconds_left} seconds remaining")
+    time.sleep(1)
 
 stream.stop_stream()
 stream.close()
 p.terminate()
 
-print("\n\nTEST FINISHED")
+print()
+print("========================================")
+print(" RECORDING TEST FINISHED")
+print("========================================")

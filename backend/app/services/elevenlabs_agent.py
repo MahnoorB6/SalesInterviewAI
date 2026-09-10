@@ -1,11 +1,13 @@
 
 import os
 import threading
+import time
 from datetime import datetime
-import array
 
+import numpy as np
 import pyaudio
 from dotenv import load_dotenv
+from scipy.signal import resample_poly
 
 from elevenlabs.client import ElevenLabs
 from elevenlabs.conversational_ai.conversation import (
@@ -15,45 +17,109 @@ from elevenlabs.conversational_ai.conversation import (
 
 load_dotenv()
 
+
+# ============================================================
+# ELEVENLABS
+# ============================================================
+
 AGENT_ID = os.getenv("ELEVENLABS_AGENT_ID")
 API_KEY = os.getenv("ELEVENLABS_API_KEY")
 
 
 # ============================================================
-# AUDIO DEVICES
+# AUDIO DEVICE NAMES
+#
+# IMPORTANT:
+# We use names instead of fixed Windows indexes because
+# Windows can change PyAudio indexes.
 # ============================================================
 
-# CABLE Output = candidate audio coming from Google Meet
-INPUT_DEVICE_INDEX = 24
+CABLE_OUTPUT_NAME = "CABLE Output (VB-Audio Virtual Cable)"
 
-# Voicemeeter Input = Alena audio going into Voicemeeter
-OUTPUT_DEVICE_INDEX = 50
+VOICEMEETER_INPUT_NAME = (
+    "Voicemeeter Input (VB-Audio Voicemeeter VAIO)"
+)
 
 
 # ============================================================
-# ELEVENLABS INPUT
+# AUDIO SETTINGS
 # ============================================================
 
-# VB-Cable native rate
+# Candidate audio from CABLE Output
 INPUT_SAMPLE_RATE = 44100
+INPUT_CHANNELS = 2
+INPUT_CHUNK_SIZE = 2048
 
 # ElevenLabs realtime input
 ELEVENLABS_SAMPLE_RATE = 16000
 
-INPUT_CHANNELS = 1
-INPUT_CHUNK_SIZE = 2048
-
-
-# ============================================================
-# ALENA OUTPUT
-# ============================================================
-
+# Alena audio going into Voicemeeter
 OUTPUT_SAMPLE_RATE = 48000
 OUTPUT_CHANNELS = 2
 OUTPUT_CHUNK_SIZE = 1024
 
 
+# ============================================================
+# INTERVIEW LIMIT
+# ============================================================
+
 MAX_INTERVIEW_SECONDS = 30 * 60
+
+
+# ============================================================
+# CANDIDATE SESSION END DETECTION
+# ============================================================
+
+SESSION_END_PHRASES = [
+    "i want to end the interview",
+    "i want to end this interview",
+    "i'd like to end the interview",
+    "i would like to end the interview",
+    "i want to end the interview now",
+    "i'd like to end the interview now",
+    "i would like to end the interview now",
+
+    "end the interview",
+    "please end the interview",
+    "can we end the interview",
+    "can we end this interview",
+
+    "let's end the interview",
+    "lets end the interview",
+
+    "stop the interview",
+    "please stop the interview",
+    "let's stop the interview",
+    "lets stop the interview",
+
+    "i'm done with the interview",
+    "i am done with the interview",
+
+    "that's all from me",
+    "thats all from me",
+
+    "can we finish the interview",
+    "i want to finish the interview",
+    "i'd like to finish the interview",
+    "i would like to finish the interview",
+
+    "please finish the interview",
+]
+
+
+SESSION_END_DELAY_SECONDS = 7
+
+
+# ============================================================
+# AUDIO DETECTION
+# ============================================================
+
+AUDIO_DETECTION_RMS = 100
+AUDIO_DETECTION_PEAK = 300
+
+# We don't immediately start ElevenLabs.
+# First we verify that candidate audio exists.
+AUDIO_WAIT_TIMEOUT = 60
 
 
 # ============================================================
@@ -81,116 +147,448 @@ os.makedirs(
 
 
 # ============================================================
-# AUDIO RESAMPLER
-# 44,100 Hz -> 16,000 Hz
+# CHECK IF CANDIDATE WANTS TO END SESSION
 # ============================================================
 
-def resample_44100_to_16000(data: bytes) -> bytes:
+def candidate_requested_session_end(text):
+
+    if not text:
+        return False
+
+    normalized = (
+        " ".join(
+            str(text)
+            .lower()
+            .strip()
+            .split()
+        )
+    )
+
+    for phrase in SESSION_END_PHRASES:
+
+        if phrase in normalized:
+            return True
+
+    return False
+
+
+# ============================================================
+# FIND AUDIO DEVICE
+# ============================================================
+
+def find_audio_device(
+    audio,
+    device_name,
+    input_device=True
+):
     """
-    Convert 44.1 kHz signed 16-bit mono PCM
-    to clean 16 kHz mono PCM for ElevenLabs.
+    Find an audio device by name.
+
+    We do NOT rely on fixed indexes such as 24 or 50.
     """
+
+    print()
+    print("=" * 70)
+    print("[AUDIO] SEARCHING DEVICE")
+    print("=" * 70)
+
+    print(
+        f"[AUDIO] Looking for: {device_name}"
+    )
+
+    matches = []
+
+    for index in range(
+        audio.get_device_count()
+    ):
+
+        try:
+
+            info = audio.get_device_info_by_index(
+                index
+            )
+
+            name = info.get(
+                "name",
+                ""
+            )
+
+            max_input = int(
+                info.get(
+                    "maxInputChannels",
+                    0
+                )
+            )
+
+            max_output = int(
+                info.get(
+                    "maxOutputChannels",
+                    0
+                )
+            )
+
+            sample_rate = float(
+                info.get(
+                    "defaultSampleRate",
+                    44100
+                )
+            )
+
+            if device_name.lower() in name.lower():
+
+                matches.append(
+                    {
+                        "index": index,
+                        "name": name,
+                        "inputs": max_input,
+                        "outputs": max_output,
+                        "sample_rate": sample_rate,
+                    }
+                )
+
+        except Exception:
+            continue
+
+
+    if not matches:
+
+        print(
+            "[AUDIO ERROR] Device not found:"
+        )
+
+        print(
+            f"              {device_name}"
+        )
+
+        print("=" * 70)
+
+        raise RuntimeError(
+            f"Audio device not found: "
+            f"{device_name}"
+        )
+
+
+    # --------------------------------------------------------
+    # Filter according to required direction
+    # --------------------------------------------------------
+
+    if input_device:
+
+        candidates = [
+            item
+            for item in matches
+            if item["inputs"] > 0
+        ]
+
+    else:
+
+        candidates = [
+            item
+            for item in matches
+            if item["outputs"] > 0
+        ]
+
+
+    if not candidates:
+
+        direction = (
+            "input"
+            if input_device
+            else "output"
+        )
+
+        raise RuntimeError(
+            f"Device '{device_name}' was found, "
+            f"but it has no usable {direction} channels."
+        )
+
+
+    # --------------------------------------------------------
+    # Prefer 2-channel device
+    # --------------------------------------------------------
+
+    candidates.sort(
+        key=lambda item: (
+            0
+            if (
+                item["inputs"] == 2
+                if input_device
+                else item["outputs"] == 2
+            )
+            else 1,
+            item["index"]
+        )
+    )
+
+
+    selected = candidates[0]
+
+
+    print(
+        "[AUDIO] Device selected:"
+    )
+
+    print(
+        f"        Index        : "
+        f"{selected['index']}"
+    )
+
+    print(
+        f"        Name         : "
+        f"{selected['name']}"
+    )
+
+    print(
+        f"        Input chans  : "
+        f"{selected['inputs']}"
+    )
+
+    print(
+        f"        Output chans : "
+        f"{selected['outputs']}"
+    )
+
+    print(
+        f"        Sample rate  : "
+        f"{selected['sample_rate']}"
+    )
+
+    print("=" * 70)
+
+
+    return selected
+
+
+# ============================================================
+# LIST RELEVANT DEVICES
+# ============================================================
+
+def print_audio_devices(audio):
+
+    print()
+    print("=" * 70)
+    print("AVAILABLE RELEVANT AUDIO DEVICES")
+    print("=" * 70)
+
+    for index in range(
+        audio.get_device_count()
+    ):
+
+        try:
+
+            info = audio.get_device_info_by_index(
+                index
+            )
+
+            name = info.get(
+                "name",
+                ""
+            )
+
+            if (
+                "CABLE" in name.upper()
+                or "VOICEMEETER" in name.upper()
+            ):
+
+                print(
+                    f"[{index}] "
+                    f"{name}"
+                )
+
+                print(
+                    f"     INPUTS="
+                    f"{info.get('maxInputChannels', 0)} "
+                    f"OUTPUTS="
+                    f"{info.get('maxOutputChannels', 0)} "
+                    f"RATE="
+                    f"{info.get('defaultSampleRate', 0)}"
+                )
+
+        except Exception:
+            continue
+
+    print("=" * 70)
+
+
+# ============================================================
+# CANDIDATE AUDIO CONVERSION
+#
+# 44.1kHz stereo
+#        ↓
+# stereo -> mono
+#        ↓
+# 44.1kHz mono
+#        ↓
+# 16kHz mono
+#        ↓
+# ElevenLabs
+# ============================================================
+
+def stereo_to_mono_16000(
+    data,
+    input_sample_rate
+):
 
     if not data:
         return b""
 
-    samples = array.array("h")
-    samples.frombytes(data)
 
-    if len(samples) < 2:
-        return b""
-
-    input_length = len(samples)
-
-    output_length = int(
-        input_length
-        * ELEVENLABS_SAMPLE_RATE
-        / INPUT_SAMPLE_RATE
+    samples = np.frombuffer(
+        data,
+        dtype=np.int16
     )
 
-    if output_length <= 0:
+
+    if len(samples) == 0:
         return b""
 
-    output = array.array("h")
 
-    ratio = (
-        INPUT_SAMPLE_RATE
-        / ELEVENLABS_SAMPLE_RATE
+    usable_length = (
+        len(samples)
+        -
+        (
+            len(samples)
+            %
+            INPUT_CHANNELS
+        )
     )
 
+
+    if usable_length <= 0:
+        return b""
+
+
+    samples = samples[
+        :usable_length
+    ]
+
+
+    stereo = samples.reshape(
+        -1,
+        INPUT_CHANNELS
+    )
+
+
+    mono = np.mean(
+        stereo.astype(
+            np.float32
+        ),
+        axis=1
+    )
+
+
     # --------------------------------------------------------
-    # RESAMPLE 44.1 kHz -> 16 kHz
+    # Resample to ElevenLabs input rate
     # --------------------------------------------------------
 
-    for i in range(output_length):
+    if input_sample_rate != ELEVENLABS_SAMPLE_RATE:
 
-        position = i * ratio
+        # Use integer ratio where possible.
+        # 44100 -> 16000 = 160 / 441
 
-        index = int(position)
+        if (
+            input_sample_rate == 44100
+        ):
 
-        fraction = position - index
-
-        if index >= input_length - 1:
-
-            value = samples[-1]
+            converted = resample_poly(
+                mono,
+                160,
+                441
+            )
 
         else:
 
-            sample1 = samples[index]
-            sample2 = samples[index + 1]
+            # Generic resampling
+            from scipy.signal import resample
 
-            value = int(
-                sample1
-                + (sample2 - sample1) * fraction
+            output_length = int(
+                len(mono)
+                *
+                ELEVENLABS_SAMPLE_RATE
+                /
+                input_sample_rate
             )
 
-        output.append(value)
+            converted = resample(
+                mono,
+                output_length
+            )
 
-    # --------------------------------------------------------
-    # NORMALIZE / AMPLIFY FOR SPEECH RECOGNITION
-    # --------------------------------------------------------
+    else:
 
-    peak = max(
-        abs(sample)
-        for sample in output
+        converted = mono
+
+
+    converted = np.clip(
+        converted,
+        -32768,
+        32767
     )
 
-    if peak > 0:
 
-        # Target speech peak
-        target_peak = 24500
+    return converted.astype(
+        np.int16
+    ).tobytes()
 
-        gain = target_peak / peak
 
-        # Don't excessively amplify audio
-        if gain > 1.8:
-            gain = 1.8
+# ============================================================
+# ALENA OUTPUT CONVERSION
+#
+# 16kHz mono
+#        ↓
+# 48kHz mono
+#        ↓
+# stereo
+#        ↓
+# Voicemeeter Input
+# ============================================================
 
-        if gain < 1.0:
-            gain = 1.0
+def resample_16000_to_48000(
+    data
+):
 
-        for i in range(len(output)):
+    if not data:
+        return b""
 
-            value = int(
-                output[i] * gain
-            )
 
-            if value > 32767:
-                value = 32767
+    samples = np.frombuffer(
+        data,
+        dtype=np.int16
+    )
 
-            elif value < -32768:
-                value = -32768
 
-            output[i] = value
+    if len(samples) == 0:
+        return b""
 
-    return output.tobytes()
+
+    converted = resample_poly(
+        samples.astype(
+            np.float32
+        ),
+        3,
+        1
+    )
+
+
+    converted = np.clip(
+        converted,
+        -32768,
+        32767
+    )
+
+
+    return converted.astype(
+        np.int16
+    ).tobytes()
 
 
 # ============================================================
 # AUDIO INTERFACE
 # ============================================================
 
-class VBCableAudioInterface(AudioInterface):
+class VBCableAudioInterface(
+    AudioInterface
+):
 
     def __init__(self):
 
@@ -199,126 +597,369 @@ class VBCableAudioInterface(AudioInterface):
         self.input_stream = None
         self.output_stream = None
 
+        self.input_device = None
+        self.output_device = None
+
         self.running = False
 
         self.lock = threading.Lock()
 
         self.input_thread = None
 
+        self.candidate_audio_detected = (
+            threading.Event()
+        )
+
+        self.last_rms = 0
+        self.last_peak = 0
+
 
     # ========================================================
-    # START AUDIO
+    # START
     # ========================================================
 
-    def start(self, input_callback):
+    def start(
+        self,
+        input_callback
+    ):
 
-        print("[AUDIO] Starting audio interface...")
+        print()
+        print("=" * 70)
+        print("[AUDIO] STARTING AUDIO INTERFACE")
+        print("=" * 70)
+
 
         self.running = True
 
 
         # ----------------------------------------------------
-        # CANDIDATE INPUT
-        #
-        # Google Meet
-        #      ↓
-        # CABLE Input
-        #      ↓
-        # CABLE Output
-        #      ↓
-        # Device 24
-        #      ↓
-        # 44.1 kHz
-        #      ↓
-        # Python resampling
-        #      ↓
-        # 16 kHz mono
-        #      ↓
-        # ElevenLabs
+        # Show relevant devices
         # ----------------------------------------------------
+
+        print_audio_devices(
+            self.audio
+        )
+
+
+        # ----------------------------------------------------
+        # Find CABLE Output
+        # ----------------------------------------------------
+
+        self.input_device = (
+            find_audio_device(
+                self.audio,
+                CABLE_OUTPUT_NAME,
+                input_device=True
+            )
+        )
+
+
+        # ----------------------------------------------------
+        # Find Voicemeeter Input
+        # ----------------------------------------------------
+
+        self.output_device = (
+            find_audio_device(
+                self.audio,
+                VOICEMEETER_INPUT_NAME,
+                input_device=False
+            )
+        )
+
+
+        input_index = (
+            self.input_device["index"]
+        )
+
+        output_index = (
+            self.output_device["index"]
+        )
+
+
+        input_rate = (
+            self.input_device["sample_rate"]
+        )
+
+
+        # ----------------------------------------------------
+        # We prefer 44100 because your CABLE Output endpoint
+        # has been identified at 44100.
+        #
+        # If Windows reports something else, use that rate.
+        # ----------------------------------------------------
+
+        if input_rate <= 0:
+
+            input_rate = INPUT_SAMPLE_RATE
+
+
+        print()
+        print(
+            "[AUDIO] FINAL ROUTING"
+        )
 
         print(
-            f"[AUDIO] Opening candidate input device "
-            f"{INPUT_DEVICE_INDEX} at "
-            f"{INPUT_SAMPLE_RATE} Hz..."
+            f"        Candidate input : "
+            f"CABLE Output"
         )
-
-        self.input_stream = self.audio.open(
-            format=pyaudio.paInt16,
-            channels=INPUT_CHANNELS,
-            rate=INPUT_SAMPLE_RATE,
-            input=True,
-            input_device_index=INPUT_DEVICE_INDEX,
-            frames_per_buffer=INPUT_CHUNK_SIZE,
-        )
-
-        print("[AUDIO] Candidate input opened.")
-
-
-        # ----------------------------------------------------
-        # ALENA OUTPUT
-        #
-        # ElevenLabs
-        #      ↓
-        # Python
-        #      ↓
-        # Device 50
-        #      ↓
-        # Voicemeeter
-        #      ↓
-        # B1
-        #      ↓
-        # Google Meet microphone
-        # ----------------------------------------------------
 
         print(
-            f"[AUDIO] Opening Alena output device "
-            f"{OUTPUT_DEVICE_INDEX}..."
+            f"        Input index     : "
+            f"{input_index}"
         )
 
-        self.output_stream = self.audio.open(
-            format=pyaudio.paInt16,
-            channels=OUTPUT_CHANNELS,
-            rate=OUTPUT_SAMPLE_RATE,
-            output=True,
-            output_device_index=OUTPUT_DEVICE_INDEX,
-            frames_per_buffer=OUTPUT_CHUNK_SIZE,
+        print(
+            f"        Input rate      : "
+            f"{input_rate}"
         )
 
-        print("[AUDIO] Alena output opened.")
+        print(
+            f"        Alena output    : "
+            f"Voicemeeter Input"
+        )
+
+        print(
+            f"        Output index    : "
+            f"{output_index}"
+        )
+
+        print(
+            f"        Output rate     : "
+            f"{OUTPUT_SAMPLE_RATE}"
+        )
 
 
         # ====================================================
-        # CANDIDATE AUDIO THREAD
+        # OPEN CANDIDATE INPUT
+        # ====================================================
+
+        print()
+        print(
+            "[AUDIO] Opening CABLE Output..."
+        )
+
+
+        try:
+
+            self.input_stream = (
+                self.audio.open(
+                    format=pyaudio.paInt16,
+
+                    channels=INPUT_CHANNELS,
+
+                    rate=int(input_rate),
+
+                    input=True,
+
+                    input_device_index=input_index,
+
+                    frames_per_buffer=(
+                        INPUT_CHUNK_SIZE
+                    ),
+                )
+            )
+
+        except Exception as error:
+
+            self.running = False
+
+            print(
+                "[AUDIO ERROR] Could not open "
+                "CABLE Output:"
+            )
+
+            print(error)
+
+            raise
+
+
+        print(
+            "[AUDIO] CABLE Output opened."
+        )
+
+
+        # ====================================================
+        # OPEN ALENA OUTPUT
+        # ====================================================
+
+        print()
+        print(
+            "[AUDIO] Opening Voicemeeter Input..."
+        )
+
+
+        try:
+
+            self.output_stream = (
+                self.audio.open(
+                    format=pyaudio.paInt16,
+
+                    channels=OUTPUT_CHANNELS,
+
+                    rate=OUTPUT_SAMPLE_RATE,
+
+                    output=True,
+
+                    output_device_index=output_index,
+
+                    frames_per_buffer=(
+                        OUTPUT_CHUNK_SIZE
+                    ),
+                )
+            )
+
+        except Exception as error:
+
+            self.running = False
+
+            if self.input_stream:
+
+                try:
+                    self.input_stream.close()
+                except Exception:
+                    pass
+
+            print(
+                "[AUDIO ERROR] Could not open "
+                "Voicemeeter Input:"
+            )
+
+            print(error)
+
+            raise
+
+
+        print(
+            "[AUDIO] Voicemeeter Input opened."
+        )
+
+
+        # ====================================================
+        # CANDIDATE INPUT THREAD
         # ====================================================
 
         def read_audio():
 
+            print()
             print(
-                "[AUDIO] Listening for candidate "
-                "(44.1 kHz -> 16 kHz)..."
+                "=" * 70
             )
+
+            print(
+                "[AUDIO] LISTENING FOR CANDIDATE"
+            )
+
+            print(
+                "[AUDIO] Speak into the Google Meet microphone."
+            )
+
+            print(
+                "[AUDIO] Waiting for signal..."
+            )
+
+            print(
+                "=" * 70
+            )
+
 
             while self.running:
 
                 try:
 
-                    # Read native VB-Cable audio
-                    data = self.input_stream.read(
-                        INPUT_CHUNK_SIZE,
-                        exception_on_overflow=False,
+                    data = (
+                        self.input_stream.read(
+                            INPUT_CHUNK_SIZE,
+                            exception_on_overflow=False
+                        )
                     )
 
 
-                    # Convert:
-                    #
-                    # 44,100 Hz
-                    #       ↓
-                    # 16,000 Hz
-                    #
+                    if not data:
+
+                        continue
+
+
+                    # ------------------------------------------------
+                    # Calculate signal level
+                    # ------------------------------------------------
+
+                    samples = np.frombuffer(
+                        data,
+                        dtype=np.int16
+                    )
+
+
+                    if len(samples) > 0:
+
+                        rms = float(
+                            np.sqrt(
+                                np.mean(
+                                    samples.astype(
+                                        np.float32
+                                    ) ** 2
+                                )
+                            )
+                        )
+
+
+                        peak = int(
+                            np.max(
+                                np.abs(
+                                    samples
+                                )
+                            )
+                        )
+
+
+                        self.last_rms = rms
+                        self.last_peak = peak
+
+
+                        # ------------------------------------------------
+                        # Detect actual signal
+                        # ------------------------------------------------
+
+                        if (
+                            rms >= AUDIO_DETECTION_RMS
+                            or
+                            peak >= AUDIO_DETECTION_PEAK
+                        ):
+
+                            if not self.candidate_audio_detected.is_set():
+
+                                print()
+                                print(
+                                    "=" * 70
+                                )
+
+                                print(
+                                    "[AUDIO] ✓ CANDIDATE AUDIO DETECTED"
+                                )
+
+                                print(
+                                    f"[AUDIO] RMS  : {rms:.0f}"
+                                )
+
+                                print(
+                                    f"[AUDIO] PEAK : {peak}"
+                                )
+
+                                print(
+                                    "=" * 70
+                                )
+
+
+                            self.candidate_audio_detected.set()
+
+
+                    # ------------------------------------------------
+                    # Convert audio
+                    # ------------------------------------------------
+
                     converted_audio = (
-                        resample_44100_to_16000(
-                            data
+                        stereo_to_mono_16000(
+                            data,
+                            input_rate
                         )
                     )
 
@@ -328,8 +969,6 @@ class VBCableAudioInterface(AudioInterface):
                         and converted_audio
                     ):
 
-                        # Send 16 kHz mono PCM
-                        # to ElevenLabs
                         input_callback(
                             converted_audio
                         )
@@ -340,9 +979,10 @@ class VBCableAudioInterface(AudioInterface):
                     if self.running:
 
                         print(
-                            f"[AUDIO INPUT ERROR] "
-                            f"{error}"
+                            "[AUDIO INPUT ERROR]"
                         )
+
+                        print(error)
 
                     break
 
@@ -352,25 +992,91 @@ class VBCableAudioInterface(AudioInterface):
             daemon=True
         )
 
+
         self.input_thread.start()
 
 
+        print()
         print(
-            "[AUDIO] Candidate input ready."
+            "[AUDIO] Candidate input thread started."
         )
 
         print(
             "[AUDIO] Alena output ready."
         )
 
+        print("=" * 70)
+
 
     # ========================================================
-    # STOP AUDIO
+    # WAIT FOR CANDIDATE AUDIO
+    # ========================================================
+
+    def wait_for_candidate_audio(
+        self,
+        timeout=AUDIO_WAIT_TIMEOUT
+    ):
+
+        print()
+        print("=" * 70)
+
+        print(
+            "[AUDIO CHECK] Waiting for candidate audio..."
+        )
+
+        print(
+            f"[AUDIO CHECK] Timeout: {timeout} seconds"
+        )
+
+        print("=" * 70)
+
+
+        detected = (
+            self.candidate_audio_detected.wait(
+                timeout
+            )
+        )
+
+
+        if detected:
+
+            print()
+            print(
+                "[AUDIO CHECK] ✓ Candidate audio confirmed."
+            )
+
+            return True
+
+
+        print()
+        print(
+            "[AUDIO CHECK] ✗ No candidate audio detected."
+        )
+
+        print(
+            "[AUDIO CHECK] RMS:",
+            self.last_rms
+        )
+
+        print(
+            "[AUDIO CHECK] PEAK:",
+            self.last_peak
+        )
+
+        return False
+
+
+    # ========================================================
+    # STOP
     # ========================================================
 
     def stop(self):
 
-        print("[AUDIO] Stopping...")
+        print()
+        print(
+            "[AUDIO] Stopping audio interface..."
+        )
+
 
         self.running = False
 
@@ -380,11 +1086,9 @@ class VBCableAudioInterface(AudioInterface):
             if self.input_stream:
 
                 self.input_stream.stop_stream()
-
                 self.input_stream.close()
 
         except Exception:
-
             pass
 
 
@@ -393,11 +1097,21 @@ class VBCableAudioInterface(AudioInterface):
             if self.output_stream:
 
                 self.output_stream.stop_stream()
-
                 self.output_stream.close()
 
         except Exception:
+            pass
 
+
+        try:
+
+            if self.input_thread:
+
+                self.input_thread.join(
+                    timeout=1
+                )
+
+        except Exception:
             pass
 
 
@@ -406,21 +1120,28 @@ class VBCableAudioInterface(AudioInterface):
             self.audio.terminate()
 
         except Exception:
-
             pass
 
 
-        print("[AUDIO] Stopped.")
+        print(
+            "[AUDIO] Audio interface stopped."
+        )
 
 
     # ========================================================
-    # ALENA AUDIO OUTPUT
+    # ALENA OUTPUT
     # ========================================================
 
-    def output(self, audio: bytes):
+    def output(
+        self,
+        audio: bytes
+    ):
 
         if not self.running:
+            return
 
+
+        if not audio:
             return
 
 
@@ -429,61 +1150,34 @@ class VBCableAudioInterface(AudioInterface):
             with self.lock:
 
                 if not self.output_stream:
-
                     return
 
 
-                # ElevenLabs gives us 16-bit PCM.
-                #
-                # Convert:
-                #
-                # 16 kHz mono
-                #       ↓
-                # 48 kHz mono
-                #       ↓
-                # stereo
-                #
-                # 16 -> 48 kHz = 3x sample duplication
-
-                samples = array.array(
-                    "h",
-                    audio
-                )
-
-                resampled = array.array(
-                    "h"
+                mono_48k = (
+                    resample_16000_to_48000(
+                        audio
+                    )
                 )
 
 
-                for sample in samples:
-
-                    resampled.append(
-                        sample
-                    )
-
-                    resampled.append(
-                        sample
-                    )
-
-                    resampled.append(
-                        sample
-                    )
+                if not mono_48k:
+                    return
 
 
-                stereo = array.array(
-                    "h"
+                samples = np.frombuffer(
+                    mono_48k,
+                    dtype=np.int16
                 )
 
 
-                for sample in resampled:
-
-                    stereo.append(
-                        sample
+                stereo = np.column_stack(
+                    (
+                        samples,
+                        samples
                     )
-
-                    stereo.append(
-                        sample
-                    )
+                ).astype(
+                    np.int16
+                )
 
 
                 self.output_stream.write(
@@ -494,8 +1188,8 @@ class VBCableAudioInterface(AudioInterface):
         except Exception as error:
 
             print(
-                f"[AUDIO OUTPUT ERROR] "
-                f"{error}"
+                "[AUDIO OUTPUT ERROR]",
+                error
             )
 
 
@@ -506,7 +1200,7 @@ class VBCableAudioInterface(AudioInterface):
     def interrupt(self):
 
         print(
-            "[AUDIO] Interrupting Alena audio..."
+            "[AUDIO] Interrupt requested."
         )
 
 
@@ -563,7 +1257,8 @@ def save_transcript(
         )
 
         file.write(
-            "=" * 70 + "\n\n"
+            "=" * 70
+            + "\n\n"
         )
 
 
@@ -596,6 +1291,7 @@ def save_transcript(
         f"{transcript_path}"
     )
 
+
     return transcript_path
 
 
@@ -622,54 +1318,53 @@ def run_alena(
         )
 
 
+    print()
+    print("=" * 70)
+    print("SalesInterviewAI - ALENA")
     print("=" * 70)
 
-    print(
-        "SalesInterviewAI - ALENA"
-    )
-
-    print("=" * 70)
 
     print(
         f"Interview ID: {interview_id}"
     )
 
+
     print(
         f"Agent ID: {AGENT_ID}"
     )
 
-    print(
-        f"Candidate input device: "
-        f"{INPUT_DEVICE_INDEX}"
-    )
 
     print(
-        f"Candidate input rate: "
-        f"{INPUT_SAMPLE_RATE} Hz"
+        "Candidate input: CABLE Output"
     )
 
-    print(
-        f"ElevenLabs input rate: "
-        f"{ELEVENLABS_SAMPLE_RATE} Hz"
-    )
 
     print(
-        f"Alena output device: "
-        f"{OUTPUT_DEVICE_INDEX}"
+        "Alena output: Voicemeeter Input"
     )
+
 
     print(
         f"Maximum duration: "
         f"{max_duration_seconds} seconds"
     )
 
+
     print("=" * 70)
 
+
+    # ========================================================
+    # ELEVENLABS CLIENT
+    # ========================================================
 
     elevenlabs = ElevenLabs(
         api_key=API_KEY
     )
 
+
+    # ========================================================
+    # AUDIO INTERFACE
+    # ========================================================
 
     audio_interface = (
         VBCableAudioInterface()
@@ -682,6 +1377,15 @@ def run_alena(
 
 
     # ========================================================
+    # SESSION END CONTROL
+    # ========================================================
+
+    session_end_requested = threading.Event()
+
+    session_end_timer = None
+
+
+    # ========================================================
     # TRANSCRIPT HANDLERS
     # ========================================================
 
@@ -691,7 +1395,6 @@ def run_alena(
     ):
 
         if not text:
-
             return
 
 
@@ -701,8 +1404,10 @@ def run_alena(
 
             "text": str(text),
 
-            "timestamp": datetime.now().strftime(
-                "%Y-%m-%d %H:%M:%S"
+            "timestamp": (
+                datetime.now().strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                )
             ),
 
         }
@@ -715,11 +1420,14 @@ def run_alena(
             )
 
 
-    def on_agent_response(response):
+    def on_agent_response(
+        response
+    ):
 
         print(
             f"\nALENA: {response}"
         )
+
 
         add_transcript(
             "ALENA",
@@ -727,16 +1435,115 @@ def run_alena(
         )
 
 
-    def on_user_transcript(transcript):
+    def on_user_transcript(
+        transcript
+    ):
+
+        nonlocal session_end_timer
+
 
         print(
             f"\nCANDIDATE: {transcript}"
         )
 
+
         add_transcript(
             "CANDIDATE",
             transcript
         )
+
+
+        # ====================================================
+        # CHECK FOR SESSION END REQUEST
+        # ====================================================
+
+        if candidate_requested_session_end(
+            transcript
+        ):
+
+            # Prevent duplicate timers
+            if session_end_requested.is_set():
+
+                return
+
+
+            session_end_requested.set()
+
+
+            print()
+            print("=" * 70)
+
+            print(
+                "[SESSION] CANDIDATE REQUESTED "
+                "TO END INTERVIEW"
+            )
+
+            print("=" * 70)
+
+
+            print(
+                f"[SESSION] Candidate said: "
+                f"{transcript}"
+            )
+
+
+            print(
+                "[SESSION] Alena will give "
+                "her closing response."
+            )
+
+
+            print(
+                f"[SESSION] Session will end in "
+                f"{SESSION_END_DELAY_SECONDS} seconds."
+            )
+
+
+            print("=" * 70)
+
+
+            # ------------------------------------------------
+            # Give Alena time to say goodbye
+            # ------------------------------------------------
+
+            def end_session_after_goodbye():
+
+                try:
+
+                    print()
+                    print(
+                        "[SESSION] Ending "
+                        "ElevenLabs session..."
+                    )
+
+
+                    conversation.end_session()
+
+
+                    print(
+                        "[SESSION] ✓ ElevenLabs "
+                        "session ended."
+                    )
+
+
+                except Exception as error:
+
+                    print(
+                        "[SESSION END ERROR]",
+                        error
+                    )
+
+
+            session_end_timer = threading.Timer(
+                SESSION_END_DELAY_SECONDS,
+                end_session_after_goodbye
+            )
+
+
+            session_end_timer.daemon = True
+
+
+            session_end_timer.start()
 
 
     def on_agent_correction(
@@ -783,51 +1590,35 @@ def run_alena(
 
 
     # ========================================================
-    # AUTOMATIC SHUTDOWN
-    # ========================================================
-
-    def automatic_shutdown():
-
-        print("\n")
-
-        print("=" * 70)
-
-        print(
-            "[ALENA] Maximum interview "
-            "duration reached."
-        )
-
-        print(
-            "[ALENA] Ending ElevenLabs session..."
-        )
-
-        print("=" * 70)
-
-
-        try:
-
-            conversation.end_session()
-
-        except Exception as error:
-
-            print(
-                "[ALENA] Session shutdown error: "
-                + str(error)
-            )
-
-
-    # ========================================================
-    # START SESSION
+    # START AUDIO
+    #
+    # NOTE:
+    # The ElevenLabs session is NOT started yet.
+    #
+    # We first verify that candidate audio exists.
     # ========================================================
 
     try:
 
+        print()
         print(
-            "\n[ALENA] Starting conversation..."
+            "[ALENA] Starting local audio interface..."
         )
 
+
+        # Conversation's audio interface needs to be started
+        # by the ElevenLabs SDK when the session starts.
+        #
+        # We therefore cannot use the normal Conversation
+        # start sequence as a zero-credit test.
+        #
+        # This function is intended to be called after
+        # Meet routing has already been verified.
+
+
+        print()
         print(
-            "[ALENA] Waiting for candidate audio..."
+            "[ALENA] Starting ElevenLabs conversation..."
         )
 
 
@@ -836,20 +1627,19 @@ def run_alena(
 
         stop_timer = threading.Timer(
             max_duration_seconds,
-            automatic_shutdown
+            lambda: conversation.end_session()
         )
 
+
         stop_timer.daemon = True
+
 
         stop_timer.start()
 
 
+        print()
         print(
-            "\n[ALENA] Conversation is active."
-        )
-
-        print(
-            "[ALENA] Automatic ending timer started."
+            "[ALENA] Conversation is active."
         )
 
 
@@ -858,9 +1648,11 @@ def run_alena(
         )
 
 
+        print()
         print(
-            "\n[ALENA] Session ended:"
+            "[ALENA] Session ended:"
         )
+
 
         print(
             f"[ALENA] Conversation ID: "
@@ -869,13 +1661,10 @@ def run_alena(
 
 
         transcript_path = save_transcript(
-
             interview_id=interview_id,
-
             transcript_entries=(
                 transcript_entries
-            ),
-
+            )
         )
 
 
@@ -898,11 +1687,20 @@ def run_alena(
         if stop_timer:
 
             try:
-
                 stop_timer.cancel()
-
             except Exception:
+                pass
 
+
+        # ====================================================
+        # CANCEL SESSION END TIMER
+        # ====================================================
+
+        if session_end_timer:
+
+            try:
+                session_end_timer.cancel()
+            except Exception:
                 pass
 
 
@@ -911,7 +1709,6 @@ def run_alena(
             audio_interface.stop()
 
         except Exception:
-
             pass
 
 
