@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel
 
 
@@ -13,9 +15,16 @@ class EvaluationCreate(BaseModel):
     closing_ability: float | None = None
 
     overall_score: float | None = None
+
+    result: str | None = None
+
     recommendation: str | None = None
+
     strengths: str | None = None
+
     weaknesses: str | None = None
+
+    question_scores: str | None = None
 
 
 class EvaluationResponse(BaseModel):
@@ -31,9 +40,20 @@ class EvaluationResponse(BaseModel):
     closing_ability: float | None
 
     overall_score: float | None
+
+    result: str | None
+
     recommendation: str | None
+
     strengths: str | None
+
     weaknesses: str | None
+
+    question_scores: str | None
+
+    recruiter_status: str | None
+
+    reviewed_at: datetime | None
 
     class Config:
         from_attributes = True

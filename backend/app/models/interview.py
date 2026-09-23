@@ -32,10 +32,12 @@ class Interview(Base):
         nullable=False,
     )
 
+    # scheduled / in_progress / completed / cancelled
     status = Column(
         String(50),
         nullable=False,
         default="scheduled",
+        index=True,
     )
 
     meet_link = Column(
@@ -66,6 +68,11 @@ class Interview(Base):
     created_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
+    )
+
+    completed_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
     )
 
     candidate = relationship(

@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+<title>SalesInterviewAI - Login</title>
+
+<style>
+    :root {
+        --cream: #FFFDF8;
+        --cream-soft: #FAF7F2;
+        --lavender: #F3EEFF;
+        --lavender-deep: #E9DFFF;
+        --rose: #EFA7B8;
+        --rose-light: #FCE7ED;
+        --rose-dark: #C85D7A;
+        --purple: #7653B8;
+        --purple-dark: #56358F;
+        --purple-soft: #EEE7FA;
+        --text: #33283D;
+        --text-dark: #241B2C;
+        --text-muted: #7D7187;
+        --border: #E9E0EA;
+        --red: #C96B78;
+        --shadow: 0 18px 50px rgba(88, 55, 115, 0.10);
+        --shadow-hover: 0 22px 60px rgba(88, 55, 115, 0.14);
+    }
+
+    * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+        font-family:
+            Arial,
+            Helvetica,
+            sans-serif;
+    }
+
+    body {
+        min-height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 24px;
+        color: var(--text);
+        background:
+            radial-gradient(
+                circle at 15% 20%,
+                rgba(239, 167, 184, 0.18),
+                transparent 30%
+            ),
+            radial-gradient(
+                circle at 85% 80%,
+                rgba(118, 83, 184, 0.15),
+                transparent 32%
+            ),
+            linear-gradient(
+                135deg,
+                var(--cream) 0%,
+                var(--lavender) 100%
+            );
+        overflow: hidden;
+    }
+
+    body::before,
+    body::after {
+        content: "";
+        position: fixed;
+        border-radius: 50%;
+        pointer-events: none;
+        filter: blur(2px);
+    }
+
+    body::before {
+        width: 260px;
+        height: 260px;
+        top: -120px;
+        right: 8%;
+        background: rgba(239, 167, 184, 0.16);
+    }
+
+    body::after {
+        width: 220px;
+        height: 220px;
+        bottom: -110px;
+        left: 8%;
+        background: rgba(118, 83, 184, 0.12);
+    }
+
+    .login-wrapper {
+        position: relative;
+        z-index: 1;
+        width: 100%;
+        max-width: 430px;
+    }
+
+    .login-box {
+        position: relative;
+        background: rgba(255, 255, 255, 0.94);
+        border: 1px solid rgba(233, 224, 234, 0.95);
+        border-radius: 24px;
+        padding: 42px 40px 38px;
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(12px);
+        transition:
+            transform 0.25s ease,
+            box-shadow 0.25s ease;
+    }
+
+    .login-box:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-hover);
+    }
+
+    .brand {
+        text-align: center;
+        margin-bottom: 30px;
+    }
+
+    .brand-name {
+        position: relative;
+        display: inline-block;
+        color: var(--purple-dark);
+        font-size: 29px;
+        font-weight: 800;
+        letter-spacing: -1px;
+        padding-bottom: 11px;
+    }
+
+    .brand-name::after {
+        content: "";
+        position: absolute;
+        left: 50%;
+        bottom: 0;
+        width: 42px;
+        height: 3px;
+        border-radius: 10px;
+        transform: translateX(-50%);
+        background:
+            linear-gradient(
+                90deg,
+                var(--rose),
+                var(--purple)
+            );
+    }
+
+    .sparkle {
+        position: absolute;
+        font-size: 13px;
+        color: var(--rose-dark);
+        animation: sparkle 2.2s ease-in-out infinite;
+    }
+
+    .sparkle.one {
+        top: -10px;
+        right: -18px;
+    }
+
+    .sparkle.two {
+        left: -20px;
+        bottom: 10px;
+        font-size: 10px;
+        animation-delay: 0.8s;
+    }
+
+    @keyframes sparkle {
+        0%,
+        100% {
+            opacity: 0.35;
+            transform: scale(0.8) rotate(0deg);
+        }
+
+        50% {
+            opacity: 1;
+            transform: scale(1.15) rotate(18deg);
+        }
+    }
+
+    .subtitle {
+        margin-top: 17px;
+        color: var(--text-muted);
+        font-size: 14px;
+        line-height: 1.6;
+    }
+
+    .form-group {
+        margin-bottom: 20px;
+    }
+
+    label {
+        display: block;
+        margin-bottom: 8px;
+        color: var(--text-dark);
+        font-size: 13px;
+        font-weight: 700;
+    }
+
+    input {
+        width: 100%;
+        height: 48px;
+        padding: 0 15px;
+        border: 1px solid var(--border);
+        border-radius: 11px;
+        outline: none;
+        background: var(--cream-soft);
+        color: var(--text-dark);
+        font-size: 14px;
+        transition:
+            border-color 0.2s ease,
+            box-shadow 0.2s ease,
+            background 0.2s ease;
+    }
+
+    input::placeholder {
+        color: #AAA0B0;
+    }
+
+    input:hover {
+        background: #FFFFFF;
+    }
+
+    input:focus {
+        background: #FFFFFF;
+        border-color: var(--purple);
+        box-shadow:
+            0 0 0 4px rgba(118, 83, 184, 0.10);
+    }
+
+    .password-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    button {
+        width: 100%;
+        height: 49px;
+        margin-top: 3px;
+        border: none;
+        border-radius: 11px;
+        color: white;
+        background:
+            linear-gradient(
+                135deg,
+                var(--purple),
+                var(--purple-dark)
+            );
+        font-size: 15px;
+        font-weight: 700;
+        cursor: pointer;
+        box-shadow:
+            0 8px 20px rgba(118, 83, 184, 0.20);
+        transition:
+            transform 0.2s ease,
+            box-shadow 0.2s ease,
+            opacity 0.2s ease;
+    }
+
+    button:hover {
+        transform: translateY(-1px);
+        box-shadow:
+            0 11px 25px rgba(118, 83, 184, 0.26);
+    }
+
+    button:active {
+        transform: translateY(0);
+    }
+
+    button:disabled {
+        cursor: not-allowed;
+        opacity: 0.7;
+        transform: none;
+        box-shadow: none;
+    }
+
+    #message {
+        min-height: 20px;
+        margin-top: 17px;
+        text-align: center;
+        color: var(--red);
+        font-size: 13px;
+        line-height: 1.5;
+    }
+
+    .footer-text {
+        margin-top: 25px;
+        text-align: center;
+        color: #A096A7;
+        font-size: 12px;
+    }
+
+    .footer-dot {
+        display: inline-block;
+        width: 5px;
+        height: 5px;
+        margin: 0 6px 2px;
+        border-radius: 50%;
+        background: var(--rose);
+    }
+
+    @media (max-width: 520px) {
+        body {
+            padding: 16px;
+        }
+
+        .login-box {
+            padding: 34px 25px 30px;
+            border-radius: 20px;
+        }
+
+        .brand-name {
+            font-size: 25px;
+        }
+    }
+</style>
+```
+
+</head>
+
+<body>
+
+```
+<div class="login-wrapper">
+
+    <div class="login-box">
+
+        <div class="brand">
+
+            <div class="brand-name">
+                SalesInterviewAI
+
+                <span class="sparkle one">✦</span>
+                <span class="sparkle two">✦</span>
+            </div>
+
+            <p class="subtitle">
+                Sign in to your admin dashboard
+            </p>
+
+        </div>
+
+
+        <form id="loginForm">
+
+            <div class="form-group">
+
+                <label for="email">
+                    Email
+                </label>
+
+                <input
+                    type="email"
+                    id="email"
+                    placeholder="Enter your email"
+                    autocomplete="email"
+                    required
+                >
+
+            </div>
+
+
+            <div class="form-group">
+
+                <label for="password">
+                    Password
+                </label>
+
+                <input
+                    type="password"
+                    id="password"
+                    placeholder="Enter your password"
+                    autocomplete="current-password"
+                    required
+                >
+
+            </div>
+
+
+            <button
+                type="submit"
+                id="loginButton"
+            >
+                Login
+            </button>
+
+        </form>
+
+
+        <div id="message"></div>
+
+
+        <div class="footer-text">
+            Secure admin access
+            <span class="footer-dot"></span>
+            SalesInterviewAI
+        </div>
+
+    </div>
+
+</div>
+
+
+<script>
+
+    const API_URL = "http://127.0.0.1:8000";
+
+
+    document
+        .getElementById("loginForm")
+        .addEventListener(
+            "submit",
+            async function(event) {
+
+                event.preventDefault();
+
+
+                const email =
+                    document
+                        .getElementById("email")
+                        .value;
+
+                const password =
+                    document
+                        .getElementById("password")
+                        .value;
+
+                const message =
+                    document
+                        .getElementById("message");
+
+                const loginButton =
+                    document
+                        .getElementById("loginButton");
+
+
+                message.textContent =
+                    "Logging in...";
+
+                message.style.color =
+                    "var(--text-muted)";
+
+                loginButton.disabled =
+                    true;
+
+
+                const formData =
+                    new URLSearchParams();
+
+                formData.append(
+                    "username",
+                    email
+                );
+
+                formData.append(
+                    "password",
+                    password
+                );
+
+
+                try {
+
+                    const response =
+                        await fetch(
+                            API_URL +
+                            "/api/auth/login",
+                            {
+                                method: "POST",
+
+                                headers: {
+                                    "Content-Type":
+                                        "application/x-www-form-urlencoded"
+                                },
+
+                                body: formData
+                            }
+                        );
+
+
+                    const data =
+                        await response.json();
+
+
+                    if (!response.ok) {
+
+                        message.textContent =
+                            data.detail ||
+                            "Login failed.";
+
+                        message.style.color =
+                            "var(--red)";
+
+                        loginButton.disabled =
+                            false;
+
+                        return;
+                    }
+
+
+                    localStorage.setItem(
+                        "access_token",
+                        data.access_token
+                    );
+
+
+                    window.location.href =
+                        "dashboard.html";
+
+                }
+
+                catch (error) {
+
+                    console.error(error);
+
+                    message.textContent =
+                        "Cannot connect to the server.";
+
+                    message.style.color =
+                        "var(--red)";
+
+                    loginButton.disabled =
+                        false;
+
+                }
+
+            }
+        );
+
+</script>
+
+
+</body>
+</html>

@@ -1,6 +1,9 @@
 import os
 import uuid
+import base64
+
 from datetime import timedelta
+from email.mime.text import MIMEText
 
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
@@ -28,6 +31,16 @@ TOKEN_FILE = os.path.join(
 
 
 # ============================================================
+# GOOGLE SCOPES
+# ============================================================
+
+GOOGLE_SCOPES = [
+    "https://www.googleapis.com/auth/calendar",
+    "https://www.googleapis.com/auth/gmail.send",
+]
+
+
+# ============================================================
 # LOAD GOOGLE CREDENTIALS
 # ============================================================
 
@@ -36,15 +49,13 @@ def get_google_credentials():
     if not os.path.exists(TOKEN_FILE):
 
         raise RuntimeError(
-            "Google Calendar is not connected. "
-            "Please connect Google Calendar first."
+            "Google account is not connected. "
+            "Please connect Google first."
         )
 
     credentials = Credentials.from_authorized_user_file(
         TOKEN_FILE,
-        scopes=[
-            "https://www.googleapis.com/auth/calendar"
-        ],
+        scopes=GOOGLE_SCOPES,
     )
 
     # --------------------------------------------------------
@@ -86,6 +97,104 @@ def get_calendar_service():
     )
 
     return service
+
+
+# ============================================================
+# CREATE GMAIL SERVICE
+# ============================================================
+
+def get_gmail_service():
+
+    credentials = get_google_credentials()
+
+    service = build(
+        "gmail",
+        "v1",
+        credentials=credentials,
+    )
+
+    return service
+
+
+# ============================================================
+# SEND EMAIL USING CONNECTED GOOGLE ACCOUNT
+# ============================================================
+
+def send_email(
+    recipient_email: str,
+    subject: str,
+    body: str,
+):
+
+    # --------------------------------------------------------
+    # VALIDATE RECIPIENT
+    # --------------------------------------------------------
+
+    recipient_email = str(
+        recipient_email or ""
+    ).strip()
+
+    if not recipient_email:
+
+        raise ValueError(
+            "Recipient email address is empty."
+        )
+
+    # --------------------------------------------------------
+    # GET GMAIL SERVICE
+    # --------------------------------------------------------
+
+    service = get_gmail_service()
+
+    # --------------------------------------------------------
+    # CREATE EMAIL
+    # --------------------------------------------------------
+
+    message = MIMEText(
+        body,
+        "plain",
+        "utf-8",
+    )
+
+    message["To"] = recipient_email
+    message["Subject"] = subject
+
+    # --------------------------------------------------------
+    # ENCODE EMAIL
+    # --------------------------------------------------------
+
+    encoded_message = base64.urlsafe_b64encode(
+        message.as_bytes()
+    ).decode()
+
+    # --------------------------------------------------------
+    # SEND EMAIL THROUGH GMAIL
+    # --------------------------------------------------------
+
+    result = (
+        service.users()
+        .messages()
+        .send(
+            userId="me",
+            body={
+                "raw": encoded_message
+            },
+        )
+        .execute()
+    )
+
+    # --------------------------------------------------------
+    # LOG SUCCESS
+    # --------------------------------------------------------
+
+    print(
+        f"[EMAIL] Sent successfully to "
+        f"{recipient_email}. "
+        f"Gmail message ID: "
+        f"{result.get('id')}"
+    )
+
+    return result
 
 
 # ============================================================
@@ -200,7 +309,12 @@ def create_interview_event(
 
         for entry_point in entry_points:
 
-            if entry_point.get("entryPointType") == "video":
+            if (
+                entry_point.get(
+                    "entryPointType"
+                )
+                == "video"
+            ):
 
                 meet_link = entry_point.get(
                     "uri"
@@ -224,8 +338,12 @@ def create_interview_event(
     # --------------------------------------------------------
 
     return {
-        "event_id": created_event.get("id"),
+        "event_id": created_event.get(
+            "id"
+        ),
+
         "meet_link": meet_link,
+
         "calendar_link": created_event.get(
             "htmlLink"
         ),

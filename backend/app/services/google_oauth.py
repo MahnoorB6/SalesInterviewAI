@@ -19,11 +19,12 @@ os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
 
 
 # ============================================================
-# GOOGLE CALENDAR PERMISSIONS
+# GOOGLE PERMISSIONS
 # ============================================================
 
 SCOPES = [
-    "https://www.googleapis.com/auth/calendar"
+    "https://www.googleapis.com/auth/calendar",
+    "https://www.googleapis.com/auth/gmail.send",
 ]
 
 

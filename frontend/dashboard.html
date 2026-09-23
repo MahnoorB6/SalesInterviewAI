@@ -1,1743 +1,2694 @@
-<!DOCTYPE html>
 
+<!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SalesInterviewAI - Dashboard</title>
 
-<style>
-    * {
-        box-sizing: border-box;
-        margin: 0;
-        padding: 0;
-        font-family: Arial, sans-serif;
-    }
+    <title>Dashboard - SalesInterviewAI</title>
 
-    body {
-        background: #f5f7fb;
-        color: #1f2937;
-    }
+    <style>
 
-    .sidebar {
-        position: fixed;
-        width: 240px;
-        height: 100vh;
-        background: #111827;
-        color: white;
-        padding: 25px 15px;
-    }
+        /* =========================================================
+           GLOBAL
+        ========================================================== */
 
-    .logo {
-        font-size: 22px;
-        font-weight: bold;
-        padding: 0 15px 35px;
-    }
-
-    .logo span {
-        color: #6366f1;
-    }
-
-    .nav-item {
-        padding: 13px 15px;
-        margin-bottom: 8px;
-        border-radius: 8px;
-        cursor: pointer;
-    }
-
-    .nav-item.active,
-    .nav-item:hover {
-        background: #6366f1;
-    }
-
-    .main {
-        margin-left: 240px;
-        padding: 30px;
-    }
-
-    .topbar {
-        display: flex;
-        justify-content: space-between;
-        margin-bottom: 30px;
-    }
-
-    .topbar h1 {
-        font-size: 28px;
-        margin-bottom: 6px;
-    }
-
-    .topbar p {
-        color: #6b7280;
-    }
-
-    .logout {
-        padding: 10px 18px;
-        border: none;
-        border-radius: 7px;
-        cursor: pointer;
-        background: #ef4444;
-        color: white;
-    }
-
-    .stats {
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 20px;
-        margin-bottom: 30px;
-    }
-
-    .card {
-        background: white;
-        padding: 22px;
-        border-radius: 12px;
-        box-shadow: 0 2px 10px rgba(0,0,0,.06);
-    }
-
-    .card-title {
-        color: #6b7280;
-        font-size: 14px;
-        margin-bottom: 10px;
-    }
-
-    .card-value {
-        font-size: 30px;
-        font-weight: bold;
-    }
-
-    .section {
-        background: white;
-        padding: 25px;
-        border-radius: 12px;
-        box-shadow: 0 2px 10px rgba(0,0,0,.06);
-        margin-bottom: 30px;
-    }
-
-    .section-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 20px;
-    }
-
-    .section h2 {
-        margin-bottom: 20px;
-    }
-
-    .section-header h2 {
-        margin-bottom: 0;
-    }
-
-    .add-button {
-        padding: 11px 18px;
-        border: none;
-        border-radius: 7px;
-        cursor: pointer;
-        background: #10b981;
-        color: white;
-        font-size: 14px;
-        font-weight: bold;
-    }
-
-    .add-button:hover {
-        background: #059669;
-    }
-
-    .candidate-form,
-    .schedule-form {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 18px;
-    }
-
-    .form-group {
-        display: flex;
-        flex-direction: column;
-    }
-
-    .form-group.full {
-        grid-column: 1 / -1;
-    }
-
-    .form-group label {
-        font-size: 14px;
-        font-weight: bold;
-        margin-bottom: 7px;
-    }
-
-    .form-group input,
-    .form-group select {
-        padding: 12px;
-        border: 1px solid #d1d5db;
-        border-radius: 7px;
-        font-size: 14px;
-        outline: none;
-    }
-
-    .form-group input:focus,
-    .form-group select:focus {
-        border-color: #6366f1;
-    }
-
-    .candidate-button,
-    .schedule-button {
-        grid-column: 1 / -1;
-        padding: 13px;
-        border: none;
-        border-radius: 7px;
-        cursor: pointer;
-        color: white;
-        font-size: 15px;
-        font-weight: bold;
-    }
-
-    .candidate-button {
-        background: #10b981;
-    }
-
-    .candidate-button:hover {
-        background: #059669;
-    }
-
-    .schedule-button {
-        background: #6366f1;
-    }
-
-    .schedule-button:hover {
-        background: #4f46e5;
-    }
-
-    .candidate-button:disabled,
-    .schedule-button:disabled {
-        background: #9ca3af;
-        cursor: not-allowed;
-    }
-
-    .message {
-        grid-column: 1 / -1;
-        padding: 12px;
-        border-radius: 7px;
-        display: none;
-    }
-
-    .success {
-        display: block;
-        background: #dcfce7;
-        color: #166534;
-    }
-
-    .error-message {
-        display: block;
-        background: #fee2e2;
-        color: #991b1b;
-    }
-
-    .meet-link {
-        margin-top: 10px;
-        word-break: break-all;
-    }
-
-    .meet-link a {
-        color: #4f46e5;
-        font-weight: bold;
-    }
-
-    .candidate-list {
-        width: 100%;
-        border-collapse: collapse;
-    }
-
-    .candidate-list th,
-    .candidate-list td {
-        padding: 14px;
-        text-align: left;
-        border-bottom: 1px solid #e5e7eb;
-    }
-
-    .candidate-list th {
-        color: #6b7280;
-        font-size: 13px;
-    }
-
-    table {
-        width: 100%;
-        border-collapse: collapse;
-    }
-
-    th,
-    td {
-        padding: 14px;
-        text-align: left;
-        border-bottom: 1px solid #e5e7eb;
-    }
-
-    th {
-        color: #6b7280;
-        font-size: 13px;
-    }
-
-    .status {
-        padding: 5px 10px;
-        border-radius: 20px;
-        background: #e0e7ff;
-        color: #4338ca;
-        font-size: 12px;
-    }
-
-    .error {
-        color: #dc2626;
-        padding: 15px 0;
-    }
-
-    .hidden {
-        display: none;
-    }
-
-    .candidate-count {
-        color: #6b7280;
-        font-size: 14px;
-        margin-bottom: 15px;
-    }
-
-    @media (max-width: 900px) {
-        .stats {
-            grid-template-columns: repeat(2, 1fr);
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
         }
+
+        :root {
+            --cream: #FFFDF8;
+            --cream-soft: #FAF7F2;
+
+            --lavender: #F3EEFF;
+            --lavender-deep: #E9DFFF;
+
+            --rose: #EFA7B8;
+            --rose-light: #FCE7ED;
+            --rose-dark: #C85D7A;
+
+            --purple: #7653B8;
+            --purple-dark: #56358F;
+            --purple-soft: #EEE7FA;
+
+            --text: #33283D;
+            --text-dark: #241B2C;
+            --text-muted: #7D7187;
+
+            --border: #E9E0EA;
+
+            --green: #65A889;
+            --red: #C96B78;
+
+            --shadow: 0 8px 28px rgba(88, 55, 115, 0.07);
+            --shadow-hover: 0 14px 34px rgba(88, 55, 115, 0.12);
+        }
+
+
+        /* =========================================================
+           BODY
+        ========================================================== */
+
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+
+            background:
+                radial-gradient(
+                    circle at 75% 0%,
+                    rgba(239, 167, 184, 0.17),
+                    transparent 28%
+                ),
+                radial-gradient(
+                    circle at 35% 100%,
+                    rgba(118, 83, 184, 0.09),
+                    transparent 30%
+                ),
+                var(--cream);
+
+            color: var(--text);
+            min-height: 100vh;
+        }
+
+
+        /* =========================================================
+           SIDEBAR
+        ========================================================== */
 
         .sidebar {
-            width: 200px;
+            position: fixed;
+            left: 0;
+            top: 0;
+
+            width: 245px;
+            height: 100vh;
+
+            background:
+                linear-gradient(
+                    180deg,
+                    #FFFDFB 0%,
+                    #F8F3FF 100%
+                );
+
+            border-right: 1px solid var(--border);
+
+            padding: 27px 17px;
+
+            z-index: 100;
+
+            box-shadow:
+                4px 0 24px rgba(88, 55, 115, 0.035);
         }
+
+
+        .logo {
+            position: relative;
+
+            font-size: 21px;
+            font-weight: 800;
+
+            letter-spacing: -0.4px;
+
+            color: var(--purple-dark);
+
+            padding: 0 13px;
+
+            margin-bottom: 39px;
+        }
+
+
+        .logo::after {
+            content: "";
+
+            position: absolute;
+
+            left: 13px;
+            bottom: -10px;
+
+            width: 34px;
+            height: 3px;
+
+            border-radius: 10px;
+
+            background:
+                linear-gradient(
+                    90deg,
+                    var(--rose),
+                    var(--purple)
+                );
+        }
+
+
+        .nav {
+            display: flex;
+            flex-direction: column;
+            gap: 7px;
+        }
+
+
+        .nav a {
+            position: relative;
+
+            text-decoration: none;
+
+            color: var(--text-muted);
+
+            padding: 13px 14px;
+
+            border-radius: 11px;
+
+            font-size: 14px;
+            font-weight: 600;
+
+            transition: all 0.22s ease;
+        }
+
+
+        .nav a:hover {
+            background: var(--lavender);
+
+            color: var(--purple-dark);
+
+            transform: translateX(2px);
+        }
+
+
+        .nav a.active {
+            color: var(--purple-dark);
+
+            background:
+                linear-gradient(
+                    135deg,
+                    var(--rose-light),
+                    var(--lavender)
+                );
+
+            box-shadow:
+                inset 3px 0 0 var(--purple),
+                0 5px 15px rgba(118, 83, 184, 0.08);
+        }
+
+
+        /* =========================================================
+           MAIN
+        ========================================================== */
 
         .main {
-            margin-left: 200px;
+            margin-left: 245px;
+
+            padding: 34px;
+
+            max-width: 1600px;
         }
 
-        .candidate-form,
-        .schedule-form {
-            grid-template-columns: 1fr;
+
+        /* =========================================================
+           HERO
+        ========================================================== */
+
+        .hero {
+            position: relative;
+
+            min-height: 230px;
+
+            display: flex;
+
+            align-items: center;
+
+            justify-content: center;
+
+            text-align: center;
+
+            overflow: hidden;
+
+            margin-bottom: 30px;
+
+            padding: 40px;
+
+            border-radius: 24px;
+
+            border: 1px solid #E9DEEC;
+
+            background:
+                radial-gradient(
+                    circle at 15% 30%,
+                    rgba(239, 167, 184, 0.24),
+                    transparent 30%
+                ),
+                radial-gradient(
+                    circle at 85% 70%,
+                    rgba(118, 83, 184, 0.19),
+                    transparent 35%
+                ),
+                linear-gradient(
+                    135deg,
+                    #FFFDF9,
+                    #F7F0FF
+                );
+
+            box-shadow:
+                0 12px 35px rgba(88, 55, 115, 0.08);
         }
-    }
-</style>
+
+
+        .hero::before {
+            content: "";
+
+            position: absolute;
+
+            width: 320px;
+            height: 320px;
+
+            border-radius: 50%;
+
+            top: -190px;
+            right: -80px;
+
+            background:
+                radial-gradient(
+                    circle,
+                    rgba(239, 167, 184, 0.18),
+                    transparent 70%
+                );
+
+            animation: floatGlow 6s ease-in-out infinite;
+        }
+
+
+        .hero::after {
+            content: "";
+
+            position: absolute;
+
+            width: 280px;
+            height: 280px;
+
+            border-radius: 50%;
+
+            bottom: -190px;
+            left: -70px;
+
+            background:
+                radial-gradient(
+                    circle,
+                    rgba(118, 83, 184, 0.14),
+                    transparent 70%
+                );
+
+            animation: floatGlow 7s ease-in-out infinite reverse;
+        }
+
+
+        .hero-content {
+            position: relative;
+
+            z-index: 2;
+
+            max-width: 850px;
+        }
+
+
+        .hero-small {
+            font-size: 12px;
+
+            text-transform: uppercase;
+
+            letter-spacing: 3px;
+
+            font-weight: 700;
+
+            color: var(--purple);
+
+            margin-bottom: 13px;
+
+            animation: fadeUp 0.8s ease;
+        }
+
+
+        /* =========================================================
+           MAIN ANIMATED BRAND NAME
+        ========================================================== */
+
+        .hero-title {
+            position: relative;
+
+            display: inline-block;
+
+            font-size: clamp(44px, 6vw, 76px);
+
+            font-weight: 900;
+
+            letter-spacing: -3px;
+
+            line-height: 1;
+
+            margin-bottom: 18px;
+
+            color: transparent;
+
+            background:
+                linear-gradient(
+                    110deg,
+                    #56358F 0%,
+                    #7653B8 25%,
+                    #EFA7B8 45%,
+                    #FFFFFF 50%,
+                    #EFA7B8 55%,
+                    #7653B8 75%,
+                    #56358F 100%
+                );
+
+            background-size: 250% auto;
+
+            -webkit-background-clip: text;
+            background-clip: text;
+
+            animation:
+                shimmer 4.5s linear infinite,
+                titleFloat 4s ease-in-out infinite;
+
+            text-shadow:
+                0 8px 30px rgba(118, 83, 184, 0.13);
+        }
+
+
+        .hero-title::after {
+            content: "";
+
+            position: absolute;
+
+            left: 50%;
+            bottom: -11px;
+
+            width: 85px;
+            height: 4px;
+
+            transform: translateX(-50%);
+
+            border-radius: 20px;
+
+            background:
+                linear-gradient(
+                    90deg,
+                    var(--rose),
+                    var(--purple),
+                    var(--rose)
+                );
+
+            background-size: 200% 100%;
+
+            animation: shimmerLine 3s linear infinite;
+        }
+
+
+        .hero-subtitle {
+            color: #75677F;
+
+            font-size: 16px;
+
+            line-height: 1.6;
+
+            margin-top: 22px;
+
+            animation: fadeUp 1s ease;
+        }
+
+
+        .hero-subtitle strong {
+            color: var(--purple-dark);
+        }
+
+
+        /* =========================================================
+           SPARKLES
+        ========================================================== */
+
+        .sparkle {
+            position: absolute;
+
+            color: var(--rose);
+
+            font-size: 18px;
+
+            z-index: 3;
+
+            opacity: 0;
+
+            pointer-events: none;
+        }
+
+
+        .sparkle.one {
+            top: 28%;
+            left: 19%;
+
+            animation: sparkle 3.2s ease-in-out infinite;
+        }
+
+
+        .sparkle.two {
+            top: 22%;
+            right: 21%;
+
+            font-size: 14px;
+
+            animation:
+                sparkle 3.8s ease-in-out infinite 1s;
+        }
+
+
+        .sparkle.three {
+            bottom: 24%;
+            left: 28%;
+
+            font-size: 12px;
+
+            animation:
+                sparkle 3.5s ease-in-out infinite 1.7s;
+        }
+
+
+        .sparkle.four {
+            bottom: 22%;
+            right: 27%;
+
+            font-size: 16px;
+
+            animation:
+                sparkle 4s ease-in-out infinite 0.5s;
+        }
+
+
+        /* =========================================================
+           PAGE HEADER
+        ========================================================== */
+
+        .page-header {
+            display: flex;
+
+            align-items: center;
+
+            justify-content: space-between;
+
+            margin-bottom: 24px;
+        }
+
+
+        .page-header h1 {
+            font-size: 24px;
+
+            letter-spacing: -0.5px;
+
+            margin-bottom: 6px;
+
+            color: var(--text-dark);
+        }
+
+
+        .page-header p {
+            color: var(--text-muted);
+
+            font-size: 13px;
+        }
+
+
+        .refresh-btn {
+            background:
+                linear-gradient(
+                    135deg,
+                    var(--purple),
+                    var(--purple-dark)
+                );
+
+            color: white;
+
+            border: none;
+
+            padding: 11px 19px;
+
+            border-radius: 10px;
+
+            cursor: pointer;
+
+            font-weight: 700;
+
+            font-size: 13px;
+
+            box-shadow:
+                0 7px 18px rgba(118, 83, 184, 0.2);
+
+            transition: all 0.22s ease;
+        }
+
+
+        .refresh-btn:hover {
+            transform: translateY(-2px);
+
+            box-shadow:
+                0 10px 23px rgba(118, 83, 184, 0.28);
+        }
+
+
+        .refresh-btn:disabled {
+            opacity: 0.6;
+
+            cursor: not-allowed;
+
+            transform: none;
+        }
+
+
+        /* =========================================================
+           STAT CARDS
+        ========================================================== */
+
+        .stats-grid {
+            display: grid;
+
+            grid-template-columns:
+                repeat(4, 1fr);
+
+            gap: 18px;
+
+            margin-bottom: 24px;
+        }
+
+
+        .stat-card {
+            position: relative;
+
+            background:
+                rgba(255, 253, 248, 0.95);
+
+            border: 1px solid var(--border);
+
+            border-radius: 16px;
+
+            padding: 23px;
+
+            overflow: hidden;
+
+            box-shadow: var(--shadow);
+
+            transition: all 0.25s ease;
+        }
+
+
+        .stat-card:hover {
+            transform: translateY(-4px);
+
+            box-shadow: var(--shadow-hover);
+
+            border-color: #DDD0E7;
+        }
+
+
+        .stat-card::before {
+            content: "";
+
+            position: absolute;
+
+            left: 0;
+            top: 0;
+
+            width: 100%;
+            height: 4px;
+
+            background:
+                linear-gradient(
+                    90deg,
+                    var(--rose),
+                    var(--purple)
+                );
+        }
+
+
+        .stat-card::after {
+            content: "";
+
+            position: absolute;
+
+            right: -38px;
+            top: -38px;
+
+            width: 115px;
+            height: 115px;
+
+            border-radius: 50%;
+
+            background: var(--lavender);
+
+            opacity: 0.7;
+        }
+
+
+        .stat-label {
+            position: relative;
+
+            z-index: 2;
+
+            color: var(--text-muted);
+
+            font-size: 11px;
+
+            font-weight: 700;
+
+            text-transform: uppercase;
+
+            letter-spacing: 0.65px;
+
+            margin-bottom: 12px;
+        }
+
+
+        .stat-value {
+            position: relative;
+
+            z-index: 2;
+
+            font-size: 31px;
+
+            font-weight: 800;
+
+            color: var(--text-dark);
+
+            min-height: 36px;
+        }
+
+
+        .stat-description {
+            position: relative;
+
+            z-index: 2;
+
+            color: #9A8EA1;
+
+            font-size: 11px;
+
+            margin-top: 8px;
+
+            line-height: 1.4;
+        }
+
+
+        .stat-icon {
+            position: absolute;
+
+            right: 18px;
+            top: 18px;
+
+            width: 40px;
+            height: 40px;
+
+            border-radius: 12px;
+
+            display: flex;
+
+            align-items: center;
+
+            justify-content: center;
+
+            background:
+                linear-gradient(
+                    135deg,
+                    var(--rose-light),
+                    var(--lavender)
+                );
+
+            color: var(--purple-dark);
+
+            font-size: 16px;
+
+            font-weight: 800;
+
+            z-index: 3;
+
+            border:
+                1px solid
+                rgba(118, 83, 184, 0.08);
+        }
+
+
+        /* =========================================================
+           CONTENT GRID
+        ========================================================== */
+
+        .content-grid {
+            display: grid;
+
+            grid-template-columns:
+                1.4fr 1fr;
+
+            gap: 20px;
+        }
+
+
+        .card {
+            background:
+                rgba(255, 253, 248, 0.96);
+
+            border: 1px solid var(--border);
+
+            border-radius: 16px;
+
+            padding: 23px;
+
+            box-shadow: var(--shadow);
+        }
+
+
+        .card-header {
+            display: flex;
+
+            align-items: center;
+
+            justify-content: space-between;
+
+            margin-bottom: 20px;
+        }
+
+
+        .card-header h2 {
+            font-size: 17px;
+
+            color: var(--text-dark);
+
+            letter-spacing: -0.2px;
+        }
+
+
+        .card-header span {
+            color: #A194AA;
+
+            font-size: 11px;
+
+            background: var(--lavender);
+
+            padding: 6px 9px;
+
+            border-radius: 20px;
+        }
+
+
+        /* =========================================================
+           INTERVIEW OVERVIEW
+        ========================================================== */
+
+        .overview-list {
+            display: flex;
+
+            flex-direction: column;
+
+            gap: 12px;
+        }
+
+
+        .overview-item {
+            display: flex;
+
+            align-items: center;
+
+            gap: 14px;
+
+            background:
+                linear-gradient(
+                    135deg,
+                    #FFFDFC,
+                    #FAF7FF
+                );
+
+            border: 1px solid #EEE6F0;
+
+            border-radius: 12px;
+
+            padding: 14px;
+
+            transition: all 0.2s ease;
+        }
+
+
+        .overview-item:hover {
+            border-color: #DDD0E7;
+
+            transform: translateX(2px);
+        }
+
+
+        .overview-icon {
+            width: 41px;
+            height: 41px;
+
+            border-radius: 12px;
+
+            display: flex;
+
+            align-items: center;
+
+            justify-content: center;
+
+            flex-shrink: 0;
+
+            background:
+                linear-gradient(
+                    135deg,
+                    var(--rose-light),
+                    var(--purple-soft)
+                );
+
+            color: var(--purple-dark);
+
+            font-weight: 800;
+        }
+
+
+        .overview-info {
+            flex: 1;
+        }
+
+
+        .overview-title {
+            font-size: 13px;
+
+            font-weight: 700;
+
+            margin-bottom: 4px;
+
+            color: var(--text-dark);
+        }
+
+
+        .overview-description {
+            color: var(--text-muted);
+
+            font-size: 11px;
+        }
+
+
+        .overview-number {
+            font-size: 21px;
+
+            font-weight: 800;
+
+            color: var(--purple-dark);
+        }
+
+
+        /* =========================================================
+           STATUS CHART
+        ========================================================== */
+
+        .status-chart {
+            display: flex;
+
+            flex-direction: column;
+
+            gap: 18px;
+        }
+
+
+        .status-row {
+            display: flex;
+
+            flex-direction: column;
+
+            gap: 8px;
+        }
+
+
+        .status-header {
+            display: flex;
+
+            justify-content: space-between;
+
+            font-size: 12px;
+        }
+
+
+        .status-label {
+            color: var(--text-muted);
+
+            font-weight: 600;
+        }
+
+
+        .status-count {
+            color: var(--text-dark);
+
+            font-weight: 800;
+        }
+
+
+        .progress-bar {
+            width: 100%;
+
+            height: 9px;
+
+            background: #EEE8F0;
+
+            border-radius: 20px;
+
+            overflow: hidden;
+        }
+
+
+        .progress-fill {
+            height: 100%;
+
+            border-radius: 20px;
+
+            width: 0;
+
+            transition: width 0.6s ease;
+        }
+
+
+        .scheduled-fill {
+            background:
+                linear-gradient(
+                    90deg,
+                    var(--rose),
+                    var(--purple)
+                );
+        }
+
+
+        .progress-fill-blue {
+            background:
+                linear-gradient(
+                    90deg,
+                    #B99BE8,
+                    #7653B8
+                );
+        }
+
+
+        .completed-fill {
+            background:
+                linear-gradient(
+                    90deg,
+                    #8BC7A8,
+                    #65A889
+                );
+        }
+
+
+        .cancelled-fill {
+            background:
+                linear-gradient(
+                    90deg,
+                    #E8A0AA,
+                    #C96B78
+                );
+        }
+
+
+        /* =========================================================
+           QUICK ACTIONS
+        ========================================================== */
+
+        .quick-actions {
+            margin-top: 25px;
+        }
+
+
+        .quick-actions .card-header {
+            margin-bottom: 14px;
+        }
+
+
+        .quick-actions-grid {
+            display: grid;
+
+            grid-template-columns:
+                repeat(2, 1fr);
+
+            gap: 11px;
+        }
+
+
+        .quick-action {
+            display: block;
+
+            text-decoration: none;
+
+            background:
+                linear-gradient(
+                    135deg,
+                    #FFFDFC,
+                    #F8F3FF
+                );
+
+            border: 1px solid #EEE6F0;
+
+            border-radius: 12px;
+
+            padding: 15px;
+
+            transition: all 0.22s ease;
+        }
+
+
+        .quick-action:hover {
+            border-color: #D8C7E5;
+
+            background:
+                linear-gradient(
+                    135deg,
+                    var(--rose-light),
+                    var(--lavender)
+                );
+
+            transform: translateY(-2px);
+
+            box-shadow:
+                0 7px 18px
+                rgba(118, 83, 184, 0.08);
+        }
+
+
+        .quick-action-title {
+            color: var(--text-dark);
+
+            font-size: 13px;
+
+            font-weight: 800;
+
+            margin-bottom: 5px;
+        }
+
+
+        .quick-action-description {
+            color: var(--text-muted);
+
+            font-size: 11px;
+
+            line-height: 1.5;
+        }
+
+
+        .quick-action-arrow {
+            color: var(--purple);
+
+            margin-top: 10px;
+
+            font-size: 14px;
+
+            font-weight: 800;
+        }
+
+
+        /* =========================================================
+           ACTIVITY
+        ========================================================== */
+
+        .activity-list {
+            display: flex;
+
+            flex-direction: column;
+        }
+
+
+        .activity-item {
+            display: flex;
+
+            gap: 13px;
+
+            padding: 14px 0;
+
+            border-bottom: 1px solid #EEE6F0;
+        }
+
+
+        .activity-item:last-child {
+            border-bottom: none;
+        }
+
+
+        .activity-dot {
+            width: 9px;
+            height: 9px;
+
+            margin-top: 5px;
+
+            border-radius: 50%;
+
+            background:
+                linear-gradient(
+                    135deg,
+                    var(--rose),
+                    var(--purple)
+                );
+
+            flex-shrink: 0;
+
+            box-shadow:
+                0 0 0 4px var(--rose-light);
+        }
+
+
+        .activity-content {
+            flex: 1;
+        }
+
+
+        .activity-title {
+            font-size: 12px;
+
+            color: #5F5368;
+
+            line-height: 1.55;
+        }
+
+
+        .activity-time {
+            color: #A194AA;
+
+            font-size: 10px;
+
+            margin-top: 4px;
+        }
+
+
+        .empty-message {
+            color: #A194AA;
+
+            font-size: 13px;
+
+            text-align: center;
+
+            padding: 30px 10px;
+        }
+
+
+        /* =========================================================
+           TOAST
+        ========================================================== */
+
+        .toast {
+            position: fixed;
+
+            right: 25px;
+            bottom: 25px;
+
+            background: var(--cream);
+
+            border: 1px solid #DDD0E7;
+
+            border-radius: 11px;
+
+            padding: 13px 17px;
+
+            color: var(--text-dark);
+
+            font-size: 13px;
+
+            display: none;
+
+            z-index: 2000;
+
+            box-shadow:
+                0 12px 30px
+                rgba(88, 55, 115, 0.15);
+        }
+
+
+        .toast.show {
+            display: block;
+
+            animation:
+                toastIn 0.25s ease;
+        }
+
+
+        .toast.error {
+            border-color: #E7B6BE;
+
+            color: var(--red);
+
+            background: #FFF8F9;
+        }
+
+
+        .toast.success {
+            border-color: #BBDCC9;
+
+            color: #4E8B6D;
+
+            background: #F8FFFA;
+        }
+
+
+        /* =========================================================
+           ANIMATIONS
+        ========================================================== */
+
+        @keyframes shimmer {
+
+            0% {
+                background-position: 200% center;
+            }
+
+            100% {
+                background-position: -50% center;
+            }
+
+        }
+
+
+        @keyframes shimmerLine {
+
+            0% {
+                background-position: 200% center;
+            }
+
+            100% {
+                background-position: -50% center;
+            }
+
+        }
+
+
+        @keyframes titleFloat {
+
+            0%,
+            100% {
+                transform: translateY(0);
+            }
+
+            50% {
+                transform: translateY(-3px);
+            }
+
+        }
+
+
+        @keyframes sparkle {
+
+            0%,
+            100% {
+                opacity: 0;
+
+                transform:
+                    scale(0.5)
+                    rotate(0deg);
+            }
+
+            35% {
+                opacity: 0.9;
+            }
+
+            60% {
+                opacity: 0.4;
+
+                transform:
+                    scale(1.2)
+                    rotate(25deg);
+            }
+
+            80% {
+                opacity: 0;
+            }
+
+        }
+
+
+        @keyframes floatGlow {
+
+            0%,
+            100% {
+                transform: translate(0, 0);
+            }
+
+            50% {
+                transform: translate(-20px, 15px);
+            }
+
+        }
+
+
+        @keyframes fadeUp {
+
+            from {
+                opacity: 0;
+
+                transform:
+                    translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+
+                transform:
+                    translateY(0);
+            }
+
+        }
+
+
+        @keyframes toastIn {
+
+            from {
+                opacity: 0;
+
+                transform:
+                    translateY(8px);
+            }
+
+            to {
+                opacity: 1;
+
+                transform:
+                    translateY(0);
+            }
+
+        }
+
+
+        /* =========================================================
+           RESPONSIVE
+        ========================================================== */
+
+        @media (max-width: 1100px) {
+
+            .stats-grid {
+                grid-template-columns:
+                    repeat(2, 1fr);
+            }
+
+            .content-grid {
+                grid-template-columns: 1fr;
+            }
+
+        }
+
+
+        @media (max-width: 800px) {
+
+            .sidebar {
+                position: static;
+
+                width: 100%;
+
+                height: auto;
+
+                border-right: none;
+
+                border-bottom:
+                    1px solid var(--border);
+
+                padding: 20px 16px;
+            }
+
+
+            .logo {
+                margin-bottom: 25px;
+            }
+
+
+            .nav {
+                flex-direction: row;
+
+                overflow-x: auto;
+
+                padding-bottom: 2px;
+            }
+
+
+            .nav a {
+                white-space: nowrap;
+            }
+
+
+            .main {
+                margin-left: 0;
+
+                padding: 22px;
+            }
+
+
+            .hero {
+                min-height: 205px;
+
+                padding: 30px 20px;
+            }
+
+
+            .hero-title {
+                letter-spacing: -2px;
+            }
+
+
+            .page-header {
+                align-items: flex-start;
+
+                flex-direction: column;
+
+                gap: 15px;
+            }
+
+        }
+
+
+        @media (max-width: 550px) {
+
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+
+
+            .quick-actions-grid {
+                grid-template-columns: 1fr;
+            }
+
+
+            .main {
+                padding: 17px;
+            }
+
+
+            .hero {
+                min-height: 190px;
+
+                border-radius: 18px;
+
+                padding: 25px 15px;
+            }
+
+
+            .hero-title {
+                font-size: 42px;
+
+                letter-spacing: -2px;
+            }
+
+
+            .hero-subtitle {
+                font-size: 13px;
+            }
+
+
+            .sparkle.one {
+                left: 8%;
+            }
+
+
+            .sparkle.two {
+                right: 8%;
+            }
+
+        }
+
+    </style>
 
 </head>
 
+
 <body>
 
-<!-- ======================================================
+
+<!-- =========================================================
      SIDEBAR
-     ====================================================== -->
+========================================================= -->
 
 <aside class="sidebar">
 
-```
-<div class="logo">
-    Sales<span>InterviewAI</span>
-</div>
+    <div class="logo">
+        SalesInterviewAI
+    </div>
 
-<div
-    class="nav-item active"
-    onclick="showDashboard()"
->
-    Dashboard
-</div>
 
-<div
-    class="nav-item"
-    onclick="showCandidates()"
->
-    Candidates
-</div>
+    <nav class="nav">
 
-<div
-    class="nav-item"
-    onclick="scrollToSchedule()"
->
-    Schedule Interview
-</div>
+        <a href="dashboard.html" class="active">
+            Dashboard
+        </a>
 
-<div
-    class="nav-item"
-    onclick="scrollToInterviews()"
->
-    Interviews
-</div>
+        <a href="candidates.html">
+            Candidates
+        </a>
 
-<div class="nav-item">
-    Evaluations
-</div>
-```
+        <a href="schedule.html">
+            Schedule
+        </a>
+
+        <a href="interviews.html">
+            Interviews
+        </a>
+
+        <a href="evaluations.html">
+            Evaluations
+        </a>
+
+    </nav>
 
 </aside>
 
-<!-- ======================================================
+
+<!-- =========================================================
      MAIN
-     ====================================================== -->
+========================================================= -->
 
 <main class="main">
 
-```
-<!-- TOP BAR -->
 
-<div class="topbar">
+    <!-- =====================================================
+         HERO
+    ====================================================== -->
 
-    <div>
-        <h1>Dashboard</h1>
+    <section class="hero">
 
-        <p>
-            Welcome to SalesInterviewAI — AI Interviewer: Alena
-        </p>
-    </div>
-
-    <button
-        class="logout"
-        onclick="logout()"
-    >
-        Logout
-    </button>
-
-</div>
-
-
-<!-- ==================================================
-     STATISTICS
-     ================================================== -->
-
-<section class="stats">
-
-    <div class="card">
-        <div class="card-title">
-            Total Candidates
+        <div class="sparkle one">
+            ✦
         </div>
 
-        <div
-            class="card-value"
-            id="totalCandidates"
-        >
-            -
-        </div>
-    </div>
-
-
-    <div class="card">
-        <div class="card-title">
-            Scheduled Interviews
+        <div class="sparkle two">
+            ✧
         </div>
 
-        <div
-            class="card-value"
-            id="scheduledInterviews"
-        >
-            -
-        </div>
-    </div>
-
-
-    <div class="card">
-        <div class="card-title">
-            Completed Interviews
+        <div class="sparkle three">
+            ✦
         </div>
 
-        <div
-            class="card-value"
-            id="completedInterviews"
-        >
-            -
-        </div>
-    </div>
-
-
-    <div class="card">
-        <div class="card-title">
-            Average Score
+        <div class="sparkle four">
+            ✧
         </div>
 
-        <div
-            class="card-value"
-            id="averageScore"
-        >
-            -
+
+        <div class="hero-content">
+
+
+            <div class="hero-title">
+                SalesInterviewAI
+            </div>
+
+
+            <p class="hero-subtitle">
+                Intelligent sales interviews powered by
+                <strong>AI, automation, and Alena</strong>.
+            </p>
+
         </div>
-    </div>
 
-</section>
+    </section>
 
 
-<!-- ==================================================
-     CANDIDATES
-     ================================================== -->
+    <!-- =====================================================
+         PAGE HEADER
+    ====================================================== -->
 
-<section
-    class="section"
-    id="candidateSection"
->
+    <div class="page-header">
 
-    <div class="section-header">
+        <div>
 
-        <h2>
-            Candidates
-        </h2>
+            <h1>
+                Dashboard
+            </h1>
+
+            <p>
+                Overview of your SalesInterviewAI recruitment activity.
+            </p>
+
+        </div>
+
 
         <button
-            class="add-button"
-            onclick="toggleCandidateForm()"
-            id="addCandidateButton"
+            class="refresh-btn"
+            id="refreshButton"
+            onclick="loadDashboard()"
         >
-            + Add Candidate
+            Refresh
         </button>
 
     </div>
 
 
-    <!-- ADD CANDIDATE FORM -->
+    <!-- =====================================================
+         STAT CARDS
+    ====================================================== -->
 
-    <div
-        id="candidateFormContainer"
-        class="hidden"
-    >
+    <div class="stats-grid">
 
-        <form
-            class="candidate-form"
-            id="candidateForm"
-        >
 
-            <div class="form-group">
+        <div class="stat-card">
 
-                <label for="candidateName">
-                    Full Name
-                </label>
-
-                <input
-                    type="text"
-                    id="candidateName"
-                    placeholder="e.g. Ahmed Khan"
-                    required
-                >
-
+            <div class="stat-icon">
+                C
             </div>
 
-
-            <div class="form-group">
-
-                <label for="candidateEmail">
-                    Email
-                </label>
-
-                <input
-                    type="email"
-                    id="candidateEmail"
-                    placeholder="candidate@example.com"
-                    required
-                >
-
+            <div class="stat-label">
+                Total Candidates
             </div>
-
-
-            <div class="form-group">
-
-                <label for="candidatePhone">
-                    Phone
-                </label>
-
-                <input
-                    type="tel"
-                    id="candidatePhone"
-                    placeholder="e.g. 03001234567"
-                >
-
-            </div>
-
 
             <div
-                id="candidateMessage"
-                class="message"
-            ></div>
-
-
-            <button
-                type="submit"
-                class="candidate-button"
-                id="candidateButton"
+                class="stat-value"
+                id="totalCandidates"
             >
-                Add Candidate
-            </button>
+                0
+            </div>
 
-        </form>
+            <div class="stat-description">
+                Candidates in your recruitment system
+            </div>
+
+        </div>
+
+
+        <div class="stat-card">
+
+            <div class="stat-icon">
+                S
+            </div>
+
+            <div class="stat-label">
+                Scheduled Interviews
+            </div>
+
+            <div
+                class="stat-value"
+                id="scheduledInterviews"
+            >
+                0
+            </div>
+
+            <div class="stat-description">
+                Upcoming interviews
+            </div>
+
+        </div>
+
+
+        <div class="stat-card">
+
+            <div class="stat-icon">
+                ✓
+            </div>
+
+            <div class="stat-label">
+                Completed Interviews
+            </div>
+
+            <div
+                class="stat-value"
+                id="completedInterviews"
+            >
+                0
+            </div>
+
+            <div class="stat-description">
+                Interviews completed by Alena
+            </div>
+
+        </div>
+
+
+        <div class="stat-card">
+
+            <div class="stat-icon">
+                ★
+            </div>
+
+            <div class="stat-label">
+                Average Score
+            </div>
+
+            <div
+                class="stat-value"
+                id="averageScore"
+            >
+                0.0
+            </div>
+
+            <div class="stat-description">
+                Average AI evaluation score
+            </div>
+
+        </div>
 
     </div>
 
+
+    <!-- =====================================================
+         MAIN CONTENT
+    ====================================================== -->
+
+    <div class="content-grid">
+
+
+        <!-- =================================================
+             INTERVIEW OVERVIEW
+        ================================================== -->
+
+        <div class="card">
+
+            <div class="card-header">
+
+                <h2>
+                    Interview Overview
+                </h2>
+
+                <span>
+                    Current status
+                </span>
+
+            </div>
+
+
+            <div class="overview-list">
+
+
+                <div class="overview-item">
+
+                    <div class="overview-icon">
+                        S
+                    </div>
+
+                    <div class="overview-info">
+
+                        <div class="overview-title">
+                            Scheduled
+                        </div>
+
+                        <div class="overview-description">
+                            Interviews waiting to begin
+                        </div>
+
+                    </div>
+
+                    <div
+                        class="overview-number"
+                        id="overviewScheduled"
+                    >
+                        0
+                    </div>
+
+                </div>
+
+
+                <div class="overview-item">
+
+                    <div class="overview-icon">
+                        ▶
+                    </div>
+
+                    <div class="overview-info">
+
+                        <div class="overview-title">
+                            In Progress
+                        </div>
+
+                        <div class="overview-description">
+                            Interviews currently running
+                        </div>
+
+                    </div>
+
+                    <div
+                        class="overview-number"
+                        id="overviewProgress"
+                    >
+                        0
+                    </div>
+
+                </div>
+
+
+                <div class="overview-item">
+
+                    <div class="overview-icon">
+                        ✓
+                    </div>
+
+                    <div class="overview-info">
+
+                        <div class="overview-title">
+                            Completed
+                        </div>
+
+                        <div class="overview-description">
+                            Interviews ready for evaluation
+                        </div>
+
+                    </div>
+
+                    <div
+                        class="overview-number"
+                        id="overviewCompleted"
+                    >
+                        0
+                    </div>
+
+                </div>
+
+
+                <div class="overview-item">
+
+                    <div class="overview-icon">
+                        ×
+                    </div>
+
+                    <div class="overview-info">
+
+                        <div class="overview-title">
+                            Cancelled
+                        </div>
+
+                        <div class="overview-description">
+                            Cancelled interviews
+                        </div>
+
+                    </div>
+
+                    <div
+                        class="overview-number"
+                        id="overviewCancelled"
+                    >
+                        0
+                    </div>
+
+                </div>
+
+            </div>
+
+        </div>
+
+
+        <!-- =================================================
+             STATUS DISTRIBUTION
+        ================================================== -->
+
+        <div class="card">
+
+            <div class="card-header">
+
+                <h2>
+                    Interview Status
+                </h2>
+
+                <span>
+                    Distribution
+                </span>
+
+            </div>
+
+
+            <div class="status-chart">
+
+
+                <div class="status-row">
+
+                    <div class="status-header">
+
+                        <span class="status-label">
+                            Scheduled
+                        </span>
+
+                        <span
+                            class="status-count"
+                            id="scheduledCount"
+                        >
+                            0
+                        </span>
+
+                    </div>
+
+                    <div class="progress-bar">
+
+                        <div
+                            class="progress-fill scheduled-fill"
+                            id="scheduledBar"
+                        ></div>
+
+                    </div>
+
+                </div>
+
+
+                <div class="status-row">
+
+                    <div class="status-header">
+
+                        <span class="status-label">
+                            In Progress
+                        </span>
+
+                        <span
+                            class="status-count"
+                            id="progressCount"
+                        >
+                            0
+                        </span>
+
+                    </div>
+
+                    <div class="progress-bar">
+
+                        <div
+                            class="progress-fill progress-fill-blue"
+                            id="progressBar"
+                        ></div>
+
+                    </div>
+
+                </div>
+
+
+                <div class="status-row">
+
+                    <div class="status-header">
+
+                        <span class="status-label">
+                            Completed
+                        </span>
+
+                        <span
+                            class="status-count"
+                            id="completedCount"
+                        >
+                            0
+                        </span>
+
+                    </div>
+
+                    <div class="progress-bar">
+
+                        <div
+                            class="progress-fill completed-fill"
+                            id="completedBar"
+                        ></div>
+
+                    </div>
+
+                </div>
+
+
+                <div class="status-row">
+
+                    <div class="status-header">
+
+                        <span class="status-label">
+                            Cancelled
+                        </span>
+
+                        <span
+                            class="status-count"
+                            id="cancelledCount"
+                        >
+                            0
+                        </span>
+
+                    </div>
+
+                    <div class="progress-bar">
+
+                        <div
+                            class="progress-fill cancelled-fill"
+                            id="cancelledBar"
+                        ></div>
+
+                    </div>
+
+                </div>
+
+            </div>
+
+
+            <!-- =================================================
+                 QUICK ACTIONS
+            ================================================== -->
+
+            <div class="quick-actions">
+
+                <div class="card-header">
+
+                    <h2>
+                        Quick Actions
+                    </h2>
+
+                </div>
+
+
+                <div class="quick-actions-grid">
+
+
+                    <a
+                        href="candidates.html"
+                        class="quick-action"
+                    >
+
+                        <div class="quick-action-title">
+                            Add Candidate
+                        </div>
+
+                        <div class="quick-action-description">
+                            Create a candidate profile and upload their resume.
+                        </div>
+
+                        <div class="quick-action-arrow">
+                            →
+                        </div>
+
+                    </a>
+
+
+                    <a
+                        href="schedule.html"
+                        class="quick-action"
+                    >
+
+                        <div class="quick-action-title">
+                            Schedule Interview
+                        </div>
+
+                        <div class="quick-action-description">
+                            Select a candidate, date, and interview time.
+                        </div>
+
+                        <div class="quick-action-arrow">
+                            →
+                        </div>
+
+                    </a>
+
+
+                    <a
+                        href="interviews.html"
+                        class="quick-action"
+                    >
+
+                        <div class="quick-action-title">
+                            View Interviews
+                        </div>
+
+                        <div class="quick-action-description">
+                            Monitor scheduled and completed interviews.
+                        </div>
+
+                        <div class="quick-action-arrow">
+                            →
+                        </div>
+
+                    </a>
+
+
+                    <a
+                        href="evaluations.html"
+                        class="quick-action"
+                    >
+
+                        <div class="quick-action-title">
+                            Review Evaluations
+                        </div>
+
+                        <div class="quick-action-description">
+                            Review AI scores and approve or reject candidates.
+                        </div>
+
+                        <div class="quick-action-arrow">
+                            →
+                        </div>
+
+                    </a>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- =====================================================
+         ACTIVITY
+    ====================================================== -->
 
     <div
-        class="candidate-count"
-        id="candidateCount"
-    >
-        Loading candidates...
-    </div>
-
-
-    <!-- CANDIDATE TABLE -->
-
-    <table class="candidate-list">
-
-        <thead>
-
-            <tr>
-
-                <th>
-                    Name
-                </th>
-
-                <th>
-                    Email
-                </th>
-
-                <th>
-                    Phone
-                </th>
-
-            </tr>
-
-        </thead>
-
-
-        <tbody id="candidateTable">
-
-            <tr>
-
-                <td colspan="3">
-                    Loading...
-                </td>
-
-            </tr>
-
-        </tbody>
-
-    </table>
-
-</section>
-
-
-<!-- ==================================================
-     SCHEDULE INTERVIEW
-     ================================================== -->
-
-<section
-    class="section"
-    id="scheduleSection"
->
-
-    <h2>
-        Schedule Interview
-    </h2>
-
-
-    <form
-        class="schedule-form"
-        id="scheduleForm"
+        class="card"
+        style="margin-top:20px;"
     >
 
-        <div class="form-group">
+        <div class="card-header">
 
-            <label for="candidate">
-                Candidate
-            </label>
+            <h2>
+                System Overview
+            </h2>
 
-            <select
-                id="candidate"
-                required
-            >
-
-                <option value="">
-                    Loading candidates...
-                </option>
-
-            </select>
-
-        </div>
-
-
-        <div class="form-group">
-
-            <label for="position">
-                Position
-            </label>
-
-            <input
-                type="text"
-                id="position"
-                placeholder="e.g. Sales Representative"
-                required
-            >
-
-        </div>
-
-
-        <div class="form-group">
-
-            <label for="date">
-                Interview Date
-            </label>
-
-            <input
-                type="date"
-                id="date"
-                required
-            >
-
-        </div>
-
-
-        <div class="form-group">
-
-            <label for="time">
-                Interview Time
-            </label>
-
-            <input
-                type="time"
-                id="time"
-                required
-            >
+            <span>
+                SalesInterviewAI
+            </span>
 
         </div>
 
 
         <div
-            id="scheduleMessage"
-            class="message"
-        ></div>
-
-
-        <button
-            type="submit"
-            class="schedule-button"
-            id="scheduleButton"
+            class="activity-list"
+            id="activityList"
         >
-            Schedule Interview
-        </button>
-
-    </form>
-
-</section>
 
 
-<!-- ==================================================
-     RECENT INTERVIEWS
-     ================================================== -->
+            <div class="activity-item">
 
-<section
-    class="section"
-    id="interviewSection"
->
+                <div class="activity-dot"></div>
 
-    <h2>
-        Recent Interviews
-    </h2>
+                <div class="activity-content">
 
+                    <div class="activity-title">
+                        SalesInterviewAI is ready to manage your AI-powered interview workflow.
+                    </div>
 
-    <table>
+                    <div class="activity-time">
+                        System
+                    </div>
 
-        <thead>
+                </div>
 
-            <tr>
-
-                <th>
-                    Candidate
-                </th>
-
-                <th>
-                    Position
-                </th>
-
-                <th>
-                    Date
-                </th>
-
-                <th>
-                    Status
-                </th>
-
-                <th>
-                    Score
-                </th>
-
-            </tr>
-
-        </thead>
+            </div>
 
 
-        <tbody id="interviewTable">
+            <div class="activity-item">
 
-            <tr>
+                <div class="activity-dot"></div>
 
-                <td colspan="5">
-                    Loading...
-                </td>
+                <div class="activity-content">
 
-            </tr>
+                    <div class="activity-title">
+                        Candidate resumes can be analyzed and used to generate personalized interview questions.
+                    </div>
 
-        </tbody>
+                    <div class="activity-time">
+                        AI Interview Pipeline
+                    </div>
 
-    </table>
+                </div>
 
-</section>
-```
+            </div>
+
+
+            <div class="activity-item">
+
+                <div class="activity-dot"></div>
+
+                <div class="activity-content">
+
+                    <div class="activity-title">
+                        Completed interviews can be evaluated and sent to recruiters for approval.
+                    </div>
+
+                    <div class="activity-time">
+                        Evaluation Pipeline
+                    </div>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
 
 </main>
 
-<!-- ======================================================
-     JAVASCRIPT
-     ====================================================== -->
+
+<!-- =========================================================
+     TOAST
+========================================================= -->
+
+<div
+    class="toast"
+    id="toast"
+></div>
+
 
 <script>
 
-const API_URL = "http://127.0.0.1:8000";
-
-const token = localStorage.getItem("access_token");
+    const API_BASE = "http://127.0.0.1:8000/api";
 
 
-/* ========================================================
-   LOGIN CHECK
-   ======================================================== */
+    /* =========================================================
+       HELPERS
+    ========================================================== */
 
-if (!token) {
+    function showToast(message, type = "success") {
 
-    window.location.href = "index.html";
+        const toast = document.getElementById("toast");
 
-}
+        toast.textContent = message;
+
+        toast.className = `toast show ${type}`;
+
+        setTimeout(() => {
+
+            toast.className = "toast";
+
+        }, 3500);
+
+    }
 
 
-/* ========================================================
-   LOAD DASHBOARD STATS
-   ======================================================== */
+    function setText(id, value) {
 
-async function loadDashboard() {
+        const element = document.getElementById(id);
 
-    try {
+        if (element) {
 
-        const response = await fetch(
-            API_URL + "/api/dashboard/stats",
-            {
-                headers: {
-                    "Authorization": "Bearer " + token
-                }
+            element.textContent =
+                value !== null &&
+                value !== undefined
+                    ? value
+                    : 0;
+
+        }
+
+    }
+
+
+    function normalizeStatus(status) {
+
+        return String(status || "")
+            .toLowerCase()
+            .replace(/\s+/g, "_")
+            .trim();
+
+    }
+
+
+    /* =========================================================
+       GET ARRAY FROM API RESPONSE
+    ========================================================== */
+
+    function extractArray(data, possibleKeys = []) {
+
+        if (Array.isArray(data)) {
+
+            return data;
+
+        }
+
+        for (const key of possibleKeys) {
+
+            if (Array.isArray(data?.[key])) {
+
+                return data[key];
+
             }
-        );
-
-
-        if (response.status === 401) {
-
-            logout();
-            return;
 
         }
 
-
-        if (!response.ok) {
-
-            throw new Error("Failed to load dashboard");
-
-        }
-
-
-        const data = await response.json();
-
-
-        document.getElementById(
-            "totalCandidates"
-        ).textContent =
-            data.total_candidates ?? 0;
-
-
-        document.getElementById(
-            "scheduledInterviews"
-        ).textContent =
-            data.scheduled_interviews ?? 0;
-
-
-        document.getElementById(
-            "completedInterviews"
-        ).textContent =
-            data.completed_interviews ?? 0;
-
-
-        document.getElementById(
-            "averageScore"
-        ).textContent =
-            data.average_score ?? 0;
-
-    }
-    catch (error) {
-
-        console.error(
-            "Dashboard error:",
-            error
-        );
+        return [];
 
     }
 
-}
 
+    /* =========================================================
+       LOAD DASHBOARD
+    ========================================================== */
 
-/* ========================================================
-   LOAD CANDIDATES
-   ======================================================== */
+    async function loadDashboard() {
 
-async function loadCandidates() {
-
-    const candidateSelect =
-        document.getElementById("candidate");
-
-    const candidateTable =
-        document.getElementById("candidateTable");
-
-    const candidateCount =
-        document.getElementById("candidateCount");
-
-
-    try {
-
-        const response = await fetch(
-            API_URL + "/api/candidates/",
-            {
-                headers: {
-                    "Authorization":
-                        "Bearer " + token
-                }
-            }
-        );
-
-
-        if (response.status === 401) {
-
-            logout();
-            return;
-
-        }
-
-
-        if (!response.ok) {
-
-            throw new Error(
-                "Failed to load candidates"
-            );
-
-        }
-
-
-        const candidates =
-            await response.json();
-
-
-        /* ----------------------------------------------
-           UPDATE DROPDOWN
-           ---------------------------------------------- */
-
-        candidateSelect.innerHTML =
-            '<option value="">Select candidate</option>';
-
-
-        /* ----------------------------------------------
-           UPDATE CANDIDATE COUNT
-           ---------------------------------------------- */
-
-        candidateCount.textContent =
-            candidates.length +
-            (
-                candidates.length === 1
-                    ? " candidate"
-                    : " candidates"
-            );
-
-
-        /* ----------------------------------------------
-           UPDATE TABLE
-           ---------------------------------------------- */
-
-        candidateTable.innerHTML = "";
-
-
-        if (
-            !Array.isArray(candidates) ||
-            candidates.length === 0
-        ) {
-
-            candidateSelect.innerHTML =
-                '<option value="">No candidates found</option>';
-
-
-            candidateTable.innerHTML = `
-                <tr>
-                    <td colspan="3">
-                        No candidates yet. Click "+ Add Candidate" to create one.
-                    </td>
-                </tr>
-            `;
-
-            return;
-
-        }
-
-
-        candidates.forEach(candidate => {
-
-            /* Dropdown */
-
-            const option =
-                document.createElement("option");
-
-            option.value =
-                candidate.id;
-
-            option.textContent =
-                candidate.name +
-                " (" +
-                candidate.email +
-                ")";
-
-            candidateSelect.appendChild(option);
-
-
-            /* Table */
-
-            const row =
-                document.createElement("tr");
-
-            row.innerHTML = `
-                <td>${escapeHtml(candidate.name ?? "-")}</td>
-                <td>${escapeHtml(candidate.email ?? "-")}</td>
-                <td>${escapeHtml(candidate.phone ?? "-")}</td>
-            `;
-
-            candidateTable.appendChild(row);
-
-        });
-
-    }
-    catch (error) {
-
-        console.error(
-            "Candidate loading error:",
-            error
-        );
-
-
-        candidateSelect.innerHTML =
-            '<option value="">Could not load candidates</option>';
-
-
-        candidateTable.innerHTML = `
-            <tr>
-                <td colspan="3" class="error">
-                    Could not load candidates.
-                </td>
-            </tr>
-        `;
-
-        candidateCount.textContent =
-            "Could not load candidates.";
-
-    }
-
-}
-
-
-/* ========================================================
-   ADD CANDIDATE
-   ======================================================== */
-
-document.getElementById(
-    "candidateForm"
-).addEventListener(
-    "submit",
-    async function(event) {
-
-        event.preventDefault();
-
-
-        const name =
-            document.getElementById(
-                "candidateName"
-            ).value.trim();
-
-
-        const email =
-            document.getElementById(
-                "candidateEmail"
-            ).value.trim();
-
-
-        const phone =
-            document.getElementById(
-                "candidatePhone"
-            ).value.trim();
-
-
-        const message =
-            document.getElementById(
-                "candidateMessage"
-            );
-
-
-        const button =
-            document.getElementById(
-                "candidateButton"
-            );
-
-
-        if (!name || !email) {
-
-            message.className =
-                "message error-message";
-
-            message.textContent =
-                "Name and email are required.";
-
-            return;
-
-        }
-
-
-        button.disabled = true;
-
-        button.textContent =
-            "Creating Candidate...";
-
-
-        message.className =
-            "message";
-
-        message.textContent =
-            "";
-
+        const refreshButton =
+            document.getElementById("refreshButton");
 
         try {
 
-            const response =
-                await fetch(
-                    API_URL +
-                    "/api/candidates/",
-                    {
-                        method: "POST",
+            refreshButton.disabled = true;
 
-                        headers: {
-                            "Content-Type":
-                                "application/json",
-
-                            "Authorization":
-                                "Bearer " +
-                                token
-                        },
-
-                        body: JSON.stringify({
-
-                            name: name,
-
-                            email: email,
-
-                            phone: phone
-
-                        })
-                    }
-                );
+            refreshButton.textContent = "Loading...";
 
 
-            const data =
-                await response.json();
+            const [
+                candidatesResult,
+                interviewsResult,
+                statsResult
+            ] = await Promise.allSettled([
+
+                fetch(`${API_BASE}/candidates/`),
+
+                fetch(`${API_BASE}/interviews/`),
+
+                fetch(`${API_BASE}/dashboard/stats`)
+
+            ]);
 
 
-            if (!response.ok) {
+            /* =================================================
+               CANDIDATES
+            ================================================== */
 
-                throw new Error(
-                    data.detail ||
-                    "Failed to create candidate."
+            let candidates = [];
+
+            if (
+                candidatesResult.status === "fulfilled" &&
+                candidatesResult.value.ok
+            ) {
+
+                const candidateData =
+                    await candidatesResult.value.json();
+
+                candidates = extractArray(
+                    candidateData,
+                    [
+                        "candidates",
+                        "items",
+                        "data"
+                    ]
                 );
 
             }
 
 
-            /* ------------------------------------------
-               SUCCESS
-               ------------------------------------------ */
+            /* =================================================
+               INTERVIEWS
+            ================================================== */
 
-            message.className =
-                "message success";
+            let interviews = [];
 
-            message.textContent =
-                "Candidate created successfully.";
+            if (
+                interviewsResult.status === "fulfilled" &&
+                interviewsResult.value.ok
+            ) {
+
+                const interviewData =
+                    await interviewsResult.value.json();
+
+                interviews = extractArray(
+                    interviewData,
+                    [
+                        "interviews",
+                        "items",
+                        "data"
+                    ]
+                );
+
+            }
 
 
-            /* Reset form */
+            /* =================================================
+               CALCULATE INTERVIEW COUNTS
+            ================================================== */
+
+            const counts = {
+
+                scheduled: 0,
+
+                in_progress: 0,
+
+                completed: 0,
+
+                cancelled: 0
+
+            };
+
+
+            interviews.forEach(interview => {
+
+                const status =
+                    normalizeStatus(
+                        interview.status
+                    );
+
+
+                if (
+                    Object.prototype.hasOwnProperty.call(
+                        counts,
+                        status
+                    )
+                ) {
+
+                    counts[status]++;
+
+                }
+
+            });
+
+
+            /* =================================================
+               DASHBOARD STATS RESPONSE
+            ================================================== */
+
+            let stats = null;
+
+            if (
+                statsResult.status === "fulfilled" &&
+                statsResult.value.ok
+            ) {
+
+                try {
+
+                    stats =
+                        await statsResult.value.json();
+
+                } catch (error) {
+
+                    console.warn(
+                        "Could not parse dashboard stats.",
+                        error
+                    );
+
+                }
+
+            }
+
+
+            const totalCandidates =
+                stats?.total_candidates ??
+                stats?.totalCandidates ??
+                stats?.candidate_count ??
+                candidates.length;
+
+
+            const scheduledInterviews =
+                stats?.scheduled_interviews ??
+                stats?.scheduledInterviews ??
+                counts.scheduled;
+
+
+            const completedInterviews =
+                stats?.completed_interviews ??
+                stats?.completedInterviews ??
+                counts.completed;
+
+
+            let averageScore =
+                stats?.average_score ??
+                stats?.averageScore ??
+                null;
+
+
+            if (
+                averageScore === null ||
+                averageScore === undefined
+            ) {
+
+                averageScore = 0;
+
+            }
+
+
+            /* =================================================
+               UPDATE TOP STAT CARDS
+            ================================================== */
+
+            setText(
+                "totalCandidates",
+                totalCandidates
+            );
+
+
+            setText(
+                "scheduledInterviews",
+                scheduledInterviews
+            );
+
+
+            setText(
+                "completedInterviews",
+                completedInterviews
+            );
+
+
+            setText(
+                "averageScore",
+                Number(averageScore).toFixed(1)
+            );
+
+
+            /* =================================================
+               UPDATE OVERVIEW
+            ================================================== */
+
+            setText(
+                "overviewScheduled",
+                counts.scheduled
+            );
+
+
+            setText(
+                "overviewProgress",
+                counts.in_progress
+            );
+
+
+            setText(
+                "overviewCompleted",
+                counts.completed
+            );
+
+
+            setText(
+                "overviewCancelled",
+                counts.cancelled
+            );
+
+
+            /* =================================================
+               UPDATE STATUS COUNTS
+            ================================================== */
+
+            setText(
+                "scheduledCount",
+                counts.scheduled
+            );
+
+
+            setText(
+                "progressCount",
+                counts.in_progress
+            );
+
+
+            setText(
+                "completedCount",
+                counts.completed
+            );
+
+
+            setText(
+                "cancelledCount",
+                counts.cancelled
+            );
+
+
+            /* =================================================
+               UPDATE PROGRESS BARS
+            ================================================== */
+
+            const totalInterviews =
+                interviews.length;
+
+
+            const denominator =
+                totalInterviews > 0
+                    ? totalInterviews
+                    : 1;
+
 
             document.getElementById(
-                "candidateForm"
-            ).reset();
+                "scheduledBar"
+            ).style.width =
+                `${(counts.scheduled / denominator) * 100}%`;
 
 
-            /* Refresh candidate data */
+            document.getElementById(
+                "progressBar"
+            ).style.width =
+                `${(counts.in_progress / denominator) * 100}%`;
 
-            await loadCandidates();
 
-            await loadDashboard();
+            document.getElementById(
+                "completedBar"
+            ).style.width =
+                `${(counts.completed / denominator) * 100}%`;
 
 
-            /* Automatically select new candidate */
+            document.getElementById(
+                "cancelledBar"
+            ).style.width =
+                `${(counts.cancelled / denominator) * 100}%`;
 
-            if (data.id) {
 
-                document.getElementById(
-                    "candidate"
-                ).value = data.id;
+            /* =================================================
+               ERROR HANDLING
+            ================================================== */
+
+            const candidatesFailed =
+                candidatesResult.status === "rejected" ||
+                (
+                    candidatesResult.status === "fulfilled" &&
+                    !candidatesResult.value.ok
+                );
+
+
+            const interviewsFailed =
+                interviewsResult.status === "rejected" ||
+                (
+                    interviewsResult.status === "fulfilled" &&
+                    !interviewsResult.value.ok
+                );
+
+
+            if (
+                candidatesFailed &&
+                interviewsFailed
+            ) {
+
+                showToast(
+                    "Could not load dashboard data. Check that the backend is running.",
+                    "error"
+                );
+
+            } else {
+
+                showToast(
+                    "Dashboard refreshed.",
+                    "success"
+                );
 
             }
 
 
-            /* Close form after short delay */
-
-            setTimeout(() => {
-
-                message.className =
-                    "message";
-
-                document.getElementById(
-                    "candidateFormContainer"
-                ).classList.add("hidden");
-
-            }, 1500);
-
-        }
-        catch (error) {
+        } catch (error) {
 
             console.error(
-                "Create candidate error:",
+                "DASHBOARD ERROR:",
                 error
             );
 
 
-            message.className =
-                "message error-message";
+            showToast(
+                "Could not load dashboard data.",
+                "error"
+            );
 
-            message.textContent =
-                error.message;
 
-        }
-        finally {
+        } finally {
 
-            button.disabled =
-                false;
+            refreshButton.disabled = false;
 
-            button.textContent =
-                "Add Candidate";
+            refreshButton.textContent = "Refresh";
 
         }
 
     }
-);
 
 
-/* ========================================================
-   SCHEDULE INTERVIEW
-   ======================================================== */
+    /* =========================================================
+       INITIALIZE
+    ========================================================== */
 
-document.getElementById(
-    "scheduleForm"
-).addEventListener(
-    "submit",
-    async function(event) {
+    document.addEventListener(
+        "DOMContentLoaded",
+        () => {
 
-        event.preventDefault();
-
-
-        const candidateId =
-            document.getElementById(
-                "candidate"
-            ).value;
-
-
-        const position =
-            document.getElementById(
-                "position"
-            ).value.trim();
-
-
-        const date =
-            document.getElementById(
-                "date"
-            ).value;
-
-
-        const time =
-            document.getElementById(
-                "time"
-            ).value;
-
-
-        const message =
-            document.getElementById(
-                "scheduleMessage"
-            );
-
-
-        const button =
-            document.getElementById(
-                "scheduleButton"
-            );
-
-
-        if (
-            !candidateId ||
-            !position ||
-            !date ||
-            !time
-        ) {
-
-            message.className =
-                "message error-message";
-
-            message.textContent =
-                "Please fill in all fields.";
-
-            return;
+            loadDashboard();
 
         }
-
-
-        button.disabled = true;
-
-        button.textContent =
-            "Creating Google Meet...";
-
-
-        message.className =
-            "message";
-
-        message.textContent =
-            "";
-
-
-        try {
-
-            const scheduledAt =
-                date +
-                "T" +
-                time +
-                ":00";
-
-
-            const response =
-                await fetch(
-                    API_URL +
-                    "/api/interviews/",
-                    {
-                        method: "POST",
-
-                        headers: {
-                            "Content-Type":
-                                "application/json",
-
-                            "Authorization":
-                                "Bearer " +
-                                token
-                        },
-
-                        body: JSON.stringify({
-
-                            candidate_id:
-                                Number(candidateId),
-
-                            position:
-                                position,
-
-                            scheduled_at:
-                                scheduledAt
-
-                        })
-                    }
-                );
-
-
-            const data =
-                await response.json();
-
-
-            if (!response.ok) {
-
-                throw new Error(
-                    data.detail ||
-                    "Failed to schedule interview."
-                );
-
-            }
-
-
-            /* ------------------------------------------
-               SUCCESS
-               ------------------------------------------ */
-
-            message.className =
-                "message success";
-
-
-            message.innerHTML =
-                "Interview scheduled successfully! " +
-                "Google Meet has been created and " +
-                "the candidate invitation has been sent.";
-
-
-            if (data.meet_link) {
-
-                message.innerHTML +=
-                    '<div class="meet-link">' +
-                    'Meet Link: ' +
-                    '<a href="' +
-                    escapeAttribute(data.meet_link) +
-                    '" target="_blank">' +
-                    escapeHtml(data.meet_link) +
-                    '</a>' +
-                    '</div>';
-
-            }
-
-
-            document.getElementById(
-                "scheduleForm"
-            ).reset();
-
-
-            await loadDashboard();
-
-            await loadInterviews();
-
-        }
-        catch (error) {
-
-            console.error(
-                "Schedule error:",
-                error
-            );
-
-
-            message.className =
-                "message error-message";
-
-            message.textContent =
-                error.message;
-
-        }
-        finally {
-
-            button.disabled =
-                false;
-
-            button.textContent =
-                "Schedule Interview";
-
-        }
-
-    }
-);
-
-
-/* ========================================================
-   LOAD INTERVIEWS
-   ======================================================== */
-
-async function loadInterviews() {
-
-    try {
-
-        const response =
-            await fetch(
-                API_URL +
-                "/api/dashboard/interviews",
-                {
-                    headers: {
-                        "Authorization":
-                            "Bearer " +
-                            token
-                    }
-                }
-            );
-
-
-        if (response.status === 401) {
-
-            logout();
-            return;
-
-        }
-
-
-        if (!response.ok) {
-
-            throw new Error(
-                "Failed to load interviews"
-            );
-
-        }
-
-
-        const interviews =
-            await response.json();
-
-
-        const table =
-            document.getElementById(
-                "interviewTable"
-            );
-
-
-        table.innerHTML = "";
-
-
-        if (
-            !Array.isArray(interviews) ||
-            interviews.length === 0
-        ) {
-
-            table.innerHTML = `
-                <tr>
-                    <td colspan="5">
-                        No interviews found.
-                    </td>
-                </tr>
-            `;
-
-            return;
-
-        }
-
-
-        interviews.forEach(interview => {
-
-            const row =
-                document.createElement("tr");
-
-
-            row.innerHTML = `
-
-                <td>
-                    ${escapeHtml(
-                        interview.candidate_name ?? "-"
-                    )}
-                </td>
-
-                <td>
-                    ${escapeHtml(
-                        interview.position ?? "-"
-                    )}
-                </td>
-
-                <td>
-                    ${escapeHtml(
-                        interview.scheduled_at ?? "-"
-                    )}
-                </td>
-
-                <td>
-                    <span class="status">
-                        ${escapeHtml(
-                            interview.status ?? "-"
-                        )}
-                    </span>
-                </td>
-
-                <td>
-                    ${escapeHtml(
-                        String(
-                            interview.overall_score ?? "-"
-                        )
-                    )}
-                </td>
-
-            `;
-
-
-            table.appendChild(row);
-
-        });
-
-    }
-    catch (error) {
-
-        console.error(
-            "Interview loading error:",
-            error
-        );
-
-
-        document.getElementById(
-            "interviewTable"
-        ).innerHTML = `
-
-            <tr>
-
-                <td
-                    colspan="5"
-                    class="error"
-                >
-                    Could not load interviews.
-
-                </td>
-
-            </tr>
-
-        `;
-
-    }
-
-}
-
-
-/* ========================================================
-   SHOW / HIDE CANDIDATE FORM
-   ======================================================== */
-
-function toggleCandidateForm() {
-
-    const container =
-        document.getElementById(
-            "candidateFormContainer"
-        );
-
-
-    const button =
-        document.getElementById(
-            "addCandidateButton"
-        );
-
-
-    if (
-        container.classList.contains("hidden")
-    ) {
-
-        container.classList.remove(
-            "hidden"
-        );
-
-        button.textContent =
-            "Cancel";
-
-        document.getElementById(
-            "candidateName"
-        ).focus();
-
-    }
-    else {
-
-        container.classList.add(
-            "hidden"
-        );
-
-        button.textContent =
-            "+ Add Candidate";
-
-    }
-
-}
-
-
-/* ========================================================
-   NAVIGATION
-   ======================================================== */
-
-function showDashboard() {
-
-    window.scrollTo({
-        top: 0,
-        behavior: "smooth"
-    });
-
-}
-
-
-function showCandidates() {
-
-    document.getElementById(
-        "candidateSection"
-    ).scrollIntoView({
-        behavior: "smooth"
-    });
-
-}
-
-
-function scrollToSchedule() {
-
-    document.getElementById(
-        "scheduleSection"
-    ).scrollIntoView({
-        behavior: "smooth"
-    });
-
-}
-
-
-function scrollToInterviews() {
-
-    document.getElementById(
-        "interviewSection"
-    ).scrollIntoView({
-        behavior: "smooth"
-    });
-
-}
-
-
-/* ========================================================
-   LOGOUT
-   ======================================================== */
-
-function logout() {
-
-    localStorage.removeItem(
-        "access_token"
     );
-
-
-    window.location.href =
-        "index.html";
-
-}
-
-
-/* ========================================================
-   SECURITY HELPERS
-   ======================================================== */
-
-function escapeHtml(value) {
-
-    const div =
-        document.createElement("div");
-
-    div.textContent =
-        value;
-
-    return div.innerHTML;
-
-}
-
-
-function escapeAttribute(value) {
-
-    return String(value)
-        .replace(/&/g, "&amp;")
-        .replace(/"/g, "&quot;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;");
-
-}
-
-
-/* ========================================================
-   INITIAL LOAD
-   ======================================================== */
-
-loadDashboard();
-
-loadCandidates();
-
-loadInterviews();
 
 </script>
 
 </body>
 </html>
+

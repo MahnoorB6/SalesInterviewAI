@@ -107,15 +107,13 @@ def google_callback(
         flow = Flow.from_client_config(
             {
                 "web": {
-                    "client_id":
-                        os.getenv(
-                            "GOOGLE_CLIENT_ID"
-                        ),
+                    "client_id": os.getenv(
+                        "GOOGLE_CLIENT_ID"
+                    ),
 
-                    "client_secret":
-                        os.getenv(
-                            "GOOGLE_CLIENT_SECRET"
-                        ),
+                    "client_secret": os.getenv(
+                        "GOOGLE_CLIENT_SECRET"
+                    ),
 
                     "auth_uri":
                         "https://accounts.google.com/o/oauth2/auth",
@@ -198,12 +196,12 @@ def google_callback(
         oauth_code_verifier = None
 
         # ----------------------------------------------------
-        # REDIRECT TO DASHBOARD
+        # REDIRECT TO LOGIN PAGE
         # ----------------------------------------------------
 
         return RedirectResponse(
-            url="http://127.0.0.1:5500/dashboard.html"
-        )
+    url="http://localhost:5173/login.html"
+)
 
     except Exception as error:
 
