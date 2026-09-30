@@ -1,0 +1,25 @@
+Alena: Hello! i am your saleinterviewer alena i am here to take your interview.
+Candidate: Hello.
+Alena: [Professional] Welcome, and thank you for joining me today for this sales interview. [Patiently] We will go through seven specific questions one at a time, so pleas...
+Candidate: Hi, Elena.
+Alena: [Professional] It is Alena, but no worries at all. [Encouragingly] Let us begin with our first question: could you start by telling me about your experience in sales and what motivated you to pursue a career in this field?
+Candidate: Hi.
+Alena: [Professional] Hello again, I am Alena, and I...
+Candidate: How are you?
+Alena: [Professional] I am doing well, thank you for asking, but let us focus on your interview today. [Patiently] Could you start by telling me about your experience in sales and what motivated you to pursue a career in this field?
+Candidate: So, I have two years of sales experience.
+Alena: [Professional] Thank you for sharing that. [Encouragingly] Could you tell me a bit more about what motivated you to pursue a career in sales?
+Candidate: So, um, uh, daily challenges, daily challenges, and that's the thing that motivate me to sales, because sales is, uh, challenging to, um, uh, uh, make sure to sell a product or anything that needs some kind of, you can say, um, a person's validation and a salesperson have to validate every time that when he or she will sell the product.
+Alena: [Professional] Thank you for that detailed explanation; it is clear you enjoy the dynamic nature of the role. [Patiently] Now, for our second question, could you describe a time when you successfully closed a difficult sale, what strategies did you use, and what was the outcome?
+Candidate: So, I have successfully closed, uh, sales in, uh, in last weeks.
+Alena: [Professional] That is great to hear. [Encouragingly] Could you share a bit more about the specific strategies you used to close that difficult sale and what the final outcome was?
+Candidate: So that was, um, uh, I, as I, I said before that I have 2 years of sales experience and so far I have also sales, um, online products and, um, own sport products, you can say. Um, so I was selling my makeup products online. I have a page. So then a person, uh, when my customer, uh, order them, so I, uh, deliver products on the day of, uh, order. So, uh, I was busy in, uh, my own sport product dealing, so I have to, uh, make sure that the order will be on time. So I asked my colleague to, um, go and, uh, uh, safely deliver the product so that the customer will be, you know, when they take it and, uh, customer will be, uh,will be satisfied.
+Alena: [Professional] Thank you for sharing that example of teamwork and ensuring customer satisfaction. [Patiently] Moving on to our third question, how do you handle rejection or setbacks in sales, and can you give me a specific example?
+Candidate: Yeah, I have faced two or three rejections, but, but that's fine. We have to work and also, um, rejections are all the practices.
+Alena: ...
+Candidate: Yes, a group successful business.
+Alena: [Professional] That is a very positive mindset to have regarding rejection. [Patiently] For our fourth question, what is your approach to building and maintaining client relationships?
+Candidate: Yeah, I have approach to building new clients.
+Alena: [Professional] Thank you for that brief answer. [Encouragingly] Could you elaborate a bit more on the specific steps or methods you use to not only build but also maintain those long-term client relationships?
+Candidate: Okay, I want to end this session. Good night now. Bye-bye.
+Alena: [Professional] Understood, I will gracefully conclude our interview session as requested. [Warmly] Thank you for your time today, and I wish you a very good night.

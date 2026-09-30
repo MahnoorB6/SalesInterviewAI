@@ -1,0 +1,43 @@
+Alena: Hello! i am your saleinterviewer alena i am here to take your interview.
+Candidate: ...
+Alena: [Patiently] Hello, are you still there? [Warmly] I'd love to get started with our interview whenever you are ready.
+Candidate: ...
+Alena: [Patiently] I'm still here whenever you're ready to begin. [Warmly] Would you like to start our interview now, or do you need a moment?
+Candidate: ...
+Alena: [Patiently] It seems like there might be a connection issue or you are taking a moment to gather your thoughts. [Warmly] Please let me know if you are still there and ready to begin our interview.
+Candidate: ...
+Alena: [Patiently] I am still here waiting for you to join the conversation. [Warmly] If you are ready, please say hello so we can begin your sales interview.
+Candidate: Hello.
+Alena: [Warmly] Hello! It is great to finally connect with you. [Confidently] I am Alena, and I will be conducting your sales interview today by asking seven specific questions one at a time. [Patiently] Could you start by telling me about your experience in sales and what motivated you to pursue a career in this field?
+Candidate: Okay.
+Alena: [Warmly] Welcome to your sales interview. [Confidently] We will go through seven questions one at a time, so please take your time with each answer. [Patiently] Could you start by telling me about your experience in sales and what motivated you to pursue a career in this field?
+Candidate: Hello, can you hear me?
+Alena: [Warmly] Yes, I can hear you clearly. [Patiently] Let's begin with our first question: could you start by telling me about your experience in sales and what motivated you to pursue a career in this field?
+Candidate: Okay, let's start again.
+Alena: [Warmly] That sounds ...
+Candidate: Interview.
+Alena: [Confidently] Understood, let us begin the interview properly. [Patiently] Could you start by telling me about your experience in sales and what motivated you to pursue a career in this field?
+Candidate: Yes, I have two years of sales experience.
+Alena: [Enthusiastically] That is a great start, thank you for sharing that. [Patiently] Could you tell me a bit more about what motivated you to pursue a career in sales?
+Candidate: I didn't rec- I, I couldn't hear you. I couldn't hear your voice.
+Alena: [Empathetically] I am so sorry for the audio trouble, let me try asking that again clearly. [Patiently] Could you please share what motivated you to pursue a career in sales?
+Candidate: What's important to you in a boss?
+Alena: [Patiently] I appreciate your question, but my role right now is to ask you the seven interview questions. [Warmly] I will make sure to pass your question about bosses to the hiring manager, so let's continue with your answer on what motivated you to join sales.
+Candidate: No, I am saying I couldn't hear your voice.
+Alena: [Empathetically] I am very sorry for the audio issues you are experiencing. [Patiently] Let me try asking the question again slowly: what motivated you to pursue a career in sales?
+Candidate: Yes, you can see my voice, but I couldn't hear your voice. You can, but I didn't.
+Alena: [Empathetically] I am truly sorry that you cannot hear my voice; since I am an AI interviewer, I rely on the system to generate my speech for you. [Patiently] Please check your device volume or speaker settings, and once you can hear me, I will be happy to repeat the question about what motivated you to pursue sales.
+Candidate: Can you hear me now?
+Alena: [Warmly] ...
+Candidate: I think I should fix this and then come back here.
+Alena: [Empathetically] I completely understand, and it is best to resolve those audio issues so we can have a smooth conversation. [Warmly] Please take your time to fix everything, and we can restart the interview whenever you are ready to return.
+Candidate: Okay, bye, Alina.
+Alena: [Warmly] Goodbye, and I hope you get your audio fixed soon. [Patiently] Please feel free to return whenever you are ready to continue your interview.
+Candidate: I want to end this interview, end this session.
+Alena: [Warmly] Understood, I will gracefully end this session for you right now. [Confidently] Thank you for your time, and we wish you the very best with your audio setup and future endeavors.
+Candidate: End the session.
+Alena: [Warmly] Thank you for your time today, and I wish you the very best with your audio setup and future endeavors. [Confidently] This session is now officially concluded.
+Candidate: And we now end the session.
+Alena: [Warmly] Thank you for your time, and I wish you the best in resolving your technical issues. [Confidently] This interview session is now officially concluded.
+Candidate: ...
+Alena: [Patiently] Since you have already ended the session, I will not ask any further questions. [Warmly] Please reach out to the hiring team when you are ready to reschedule.
