@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
+import type { FormEvent, ReactElement, ReactNode } from "react"
 import {
   Bar, BarChart, CartesianGrid, Line, LineChart, PolarAngleAxis, PolarGrid,
   Radar, RadarChart, ResponsiveContainer, Tooltip, XAxis, YAxis
@@ -78,7 +79,7 @@ function Login({ onLogin }: { onLogin: () => void }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
 
-  async function submit(e: React.FormEvent) {
+  async function submit(e: FormEvent) {
     e.preventDefault()
     setBusy(true)
     setError("")
@@ -134,7 +135,7 @@ function Login({ onLogin }: { onLogin: () => void }) {
   )
 }
 
-function Layout({ page, children, onLogout }: { page: string, children: React.ReactNode, onLogout: () => void }) {
+function Layout({ page, children, onLogout }: { page: string, children: ReactNode, onLogout: () => void }) {
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -186,7 +187,7 @@ function PanelTitle({ title, sub }: { title: string, sub: string }) {
   return <div className="panel-header"><div><h2>{title}</h2><p>{sub}</p></div></div>
 }
 
-function Chart({ children, h = 250 }: { children: React.ReactElement, h?: number }) {
+function Chart({ children, h = 250 }: { children: ReactElement, h?: number }) {
   return <div className="chart-wrap"><ResponsiveContainer width="100%" height={h}>{children}</ResponsiveContainer></div>
 }
 
