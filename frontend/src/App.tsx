@@ -77,7 +77,22 @@ function Login({ onLogin }: { onLogin: () => void }) {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [busy, setBusy] = useState(false)
+  const [googleBusy, setGoogleBusy] = useState(false)
+  const [googleConnected, setGoogleConnected] = useState(false)
   const [error, setError] = useState("")
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get("google") === "connected") setGoogleConnected(true)
+    get("/google/status")
+      .then(data => setGoogleConnected(Boolean(data.connected)))
+      .catch(() => {})
+  }, [])
+
+  function connectGoogle() {
+    setGoogleBusy(true)
+    window.location.href = `${API}/google/login`
+  }
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -115,7 +130,17 @@ function Login({ onLogin }: { onLogin: () => void }) {
         <div className="login-brand">SalesInterviewAI</div>
         <p className="login-kicker">AI-POWERED SALES INTERVIEW PLATFORM</p>
         <h1>Welcome back</h1>
-        <p className="login-subtitle">Sign in to your recruiter workspace and manage interviews with Alena.</p>
+        <p className="login-subtitle">Connect your Google account first, then sign in to your recruiter workspace.</p>
+
+        <div className="google-connect-box">
+          <div>
+            <strong>{googleConnected ? "Google account connected" : "Connect Google account"}</strong>
+            <span>{googleConnected ? "Calendar and email permissions are ready." : "Required for Meet scheduling, interview invites, approvals and rejection emails."}</span>
+          </div>
+          <button type="button" className={googleConnected ? "secondary-button" : "primary-button"} onClick={connectGoogle} disabled={googleBusy}>
+            {googleBusy ? "Connecting..." : googleConnected ? "Reconnect Google" : "Connect Google"}
+          </button>
+        </div>
 
         <form onSubmit={submit} className="login-form">
           <label>Email
@@ -411,7 +436,7 @@ function Empty({ text }: { text: string }) {
 }
 
 export default function App() {
-  const [loggedIn, setLoggedIn] = useState(Boolean(token()))
+  const [loggedIn, setLoggedIn] = useState(false)
   const [page, setPage] = useState(currentPage())
 
   useEffect(() => {
@@ -425,6 +450,7 @@ export default function App() {
   function logout() {
     localStorage.removeItem("access_token")
     setLoggedIn(false)
+    setPage("dashboard")
     window.history.replaceState({}, "", "/")
   }
 
