@@ -136,6 +136,47 @@ async def create_browser(playwright):
     return context
 
 
+async def select_meet_microphone(page, device_name: str):
+    """Select the virtual cable explicitly through Google Meet settings."""
+    try:
+        more = page.get_by_role("button", name="More options")
+        if await more.is_visible():
+            await more.click()
+            await page.wait_for_timeout(500)
+
+        settings = page.get_by_text("Settings", exact=True)
+        if await settings.is_visible():
+            await settings.click()
+            await page.wait_for_timeout(1000)
+
+        audio = page.get_by_text("Audio", exact=True)
+        if await audio.is_visible():
+            await audio.click()
+            await page.wait_for_timeout(700)
+
+        selector = page.get_by_text(device_name, exact=True)
+        if not await selector.is_visible():
+            selector = page.locator('[role="combobox"]').first
+
+        if await selector.is_visible():
+            await selector.click()
+            await page.wait_for_timeout(500)
+            option = page.get_by_text(device_name, exact=True)
+            if await option.is_visible():
+                await option.click()
+                await page.wait_for_timeout(500)
+                print(f"[MEET AUDIO] Selected microphone in Meet settings: {device_name}")
+            else:
+                print(f"[MEET AUDIO] Microphone option not visible: {device_name}")
+
+        close = page.get_by_role("button", name="Close")
+        if await close.is_visible():
+            await close.click()
+            await page.wait_for_timeout(500)
+
+    except Exception as error:
+        print(f"[MEET AUDIO] Settings microphone selection failed: {error}")
+
 async def ensure_meet_microphone_on(page):
     """Make sure Google Meet is sending the virtual microphone."""
 
@@ -210,6 +251,14 @@ async def join_meet(page, meet_link: str):
             pass
 
     await page.wait_for_timeout(5000)
+
+    await select_meet_microphone(
+        page,
+        os.getenv(
+            "MEET_MIC_DEVICE",
+            "CABLE Output (VB-Audio Virtual Cable)",
+        ),
+    )
 
     await ensure_meet_microphone_on(page)
 
