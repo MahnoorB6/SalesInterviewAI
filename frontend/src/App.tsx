@@ -32,11 +32,11 @@ const token = () => localStorage.getItem("access_token") || ""
 
 function authHeaders(extra: Record<string, string> = {}) {
   const t = token()
-  return t ? { ...extra, Authorization: \`Bearer \${t}\` } : extra
+  return t ? { ...extra, Authorization: `Bearer ${t}` } : extra
 }
 
 async function get(path: string) {
-  const r = await fetch(\`\${API}\${path}\`, { headers: authHeaders() })
+  const r = await fetch(`${API}${path}`, { headers: authHeaders() })
   if (r.status === 401) {
     localStorage.removeItem("access_token")
     window.dispatchEvent(new Event("auth-expired"))
@@ -46,7 +46,7 @@ async function get(path: string) {
 }
 
 async function post(path: string, body: any) {
-  const r = await fetch(\`\${API}\${path}\`, {
+  const r = await fetch(`${API}${path}`, {
     method: "POST",
     headers: authHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify(body),
@@ -56,7 +56,7 @@ async function post(path: string, body: any) {
     window.dispatchEvent(new Event("auth-expired"))
   }
   if (!r.ok) {
-    let detail = \`Request failed (\${r.status})\`
+    let detail = `Request failed (${r.status})`
     try { detail = (await r.json()).detail || detail } catch {}
     throw new Error(detail)
   }
@@ -64,7 +64,7 @@ async function post(path: string, body: any) {
 }
 
 function navigate(page: string, params = "") {
-  const target = page === "dashboard" ? "/" : \`/?page=\${page}\${params}\`
+  const target = page === "dashboard" ? "/" : `/?page=${page}${params}`
   window.history.pushState({}, "", target)
   window.dispatchEvent(new PopStateEvent("popstate"))
 }
@@ -88,7 +88,7 @@ function Login({ onLogin }: { onLogin: () => void }) {
       body.set("username", email)
       body.set("password", password)
 
-      const response = await fetch(\`\${API}/auth/login\`, {
+      const response = await fetch(`${API}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body,
@@ -140,8 +140,7 @@ function Layout({ page, children, onLogout }: { page: string, children: ReactNod
     <div className="app-shell">
       <aside className="sidebar">
         <button className="brand brand-button" onClick={() => navigate("dashboard")}>
-          <div className="brand-mark">S</div>
-          <div><b>SalesInterviewAI</b><small>AI-powered hiring</small></div>
+          <b>SalesInterviewAI</b>
         </button>
 
         <div className="workspace-label">WORKSPACE</div>
@@ -180,7 +179,7 @@ function Button({ children, secondary = false, onClick }: { children: React.Reac
 
 function Status({ value }: { value: string }) {
   const s = String(value || "pending").toLowerCase()
-  return <span className={\`status \${s.replaceAll("_", "-")}\`}>{s.replaceAll("_", " ")}</span>
+  return <span className={`status ${s.replaceAll("_", "-")}`}>{s.replaceAll("_", " ")}</span>
 }
 
 function PanelTitle({ title, sub }: { title: string, sub: string }) {
@@ -257,7 +256,7 @@ function Candidates() {
     <Header eyebrow="TALENT PIPELINE" title="Candidates" subtitle="Manage candidates, resumes and interview readiness." action={<Button onClick={() => navigate("schedule")}>Schedule interview</Button>} />
     <section className="stats-grid mini">{[["Total", rows.length], ["With resume", rows.filter(x => x.resume_path || x.resume_text).length], ["Roles", new Set(rows.map(x => x.latest_role).filter(Boolean)).size], ["Ready", "AI"]].map(x => <article className="stat-card" key={String(x[0])}><div className="stat-label">{x[0]}</div><div className="stat-value small">{x[1]}</div></article>)}</section>
     <article className="panel table-panel"><div className="panel-header"><div><h2>Candidate directory</h2><p>Search and review your candidate pipeline.</p></div><input className="search" placeholder="Search candidates..." value={q} onChange={e => setQ(e.target.value)} /></div>
-      <div className="table-scroll"><table><thead><tr><th>Candidate</th><th>Latest role</th><th>Company</th><th>Resume</th><th>Action</th></tr></thead><tbody>{filtered.map(x => <tr key={x.id}><td><b>{x.name || x.full_name || \`Candidate #\${x.id}\`}</b><small>{x.email || "No email"}</small></td><td>{x.latest_role || "—"}</td><td>{x.latest_company || "—"}</td><td>{x.resume_path || x.resume_text ? <span className="pill good">Available</span> : <span className="pill">Missing</span>}</td><td><Button secondary onClick={() => navigate("schedule", \`&candidate=\${x.id}\`)}>Schedule</Button></td></tr>)}</tbody></table>{!filtered.length && <Empty text="No candidates found."/>}</div>
+      <div className="table-scroll"><table><thead><tr><th>Candidate</th><th>Latest role</th><th>Company</th><th>Resume</th><th>Action</th></tr></thead><tbody>{filtered.map(x => <tr key={x.id}><td><b>{x.name || x.full_name || `Candidate #${x.id}`}</b><small>{x.email || "No email"}</small></td><td>{x.latest_role || "—"}</td><td>{x.latest_company || "—"}</td><td>{x.resume_path || x.resume_text ? <span className="pill good">Available</span> : <span className="pill">Missing</span>}</td><td><Button secondary onClick={() => navigate("schedule", `&candidate=${x.id}`)}>Schedule</Button></td></tr>)}</tbody></table>{!filtered.length && <Empty text="No candidates found."/>}</div>
     </article>
   </>
 }
@@ -270,8 +269,8 @@ function Interviews() {
   return <>
     <Header eyebrow="INTERVIEW OPERATIONS" title="Interviews" subtitle="Monitor every scheduled and completed AI interview." action={<Button onClick={() => navigate("schedule")}>+ Schedule interview</Button>} />
     <div className="filter-tabs">{["all","scheduled","in_progress","completed","cancelled"].map(x => <button className={filter === x ? "selected" : ""} onClick={() => setFilter(x)} key={x}>{x.replace("_"," ")}</button>)}</div>
-    <article className="panel table-panel"><PanelTitle title="Interview pipeline" sub={\`\${data.length} interviews in this view.\`} />
-      <div className="table-scroll"><table><thead><tr><th>Candidate</th><th>Scheduled</th><th>Status</th><th>Meet</th><th>Evaluation</th></tr></thead><tbody>{data.map(x => <tr key={x.id}><td><b>{x.candidate_name || x.candidate?.name || \`Candidate #\${x.candidate_id}\`}</b><small>Interview #{x.id}</small></td><td>{x.scheduled_at ? new Date(x.scheduled_at).toLocaleString() : "—"}</td><td><Status value={x.status}/></td><td>{x.meet_link ? <a className="link" href={x.meet_link} target="_blank" rel="noreferrer">Open Meet</a> : "—"}</td><td><Button secondary onClick={() => navigate("evaluations", \`&interview=\${x.id}\`)}>Evaluate</Button></td></tr>)}</tbody></table>{!data.length && <Empty text="No interviews in this status."/>}</div>
+    <article className="panel table-panel"><PanelTitle title="Interview pipeline" sub={`${data.length} interviews in this view.`} />
+      <div className="table-scroll"><table><thead><tr><th>Candidate</th><th>Scheduled</th><th>Status</th><th>Meet</th><th>Evaluation</th></tr></thead><tbody>{data.map(x => <tr key={x.id}><td><b>{x.candidate_name || x.candidate?.name || `Candidate #${x.candidate_id}`}</b><small>Interview #{x.id}</small></td><td>{x.scheduled_at ? new Date(x.scheduled_at).toLocaleString() : "—"}</td><td><Status value={x.status}/></td><td>{x.meet_link ? <a className="link" href={x.meet_link} target="_blank" rel="noreferrer">Open Meet</a> : "—"}</td><td><Button secondary onClick={() => navigate("evaluations", `&interview=${x.id}`)}>Evaluate</Button></td></tr>)}</tbody></table>{!data.length && <Empty text="No interviews in this status."/>}</div>
     </article>
   </>
 }
@@ -286,14 +285,14 @@ function Schedule() {
   useEffect(() => { get("/candidates/").then(x => setCands(Array.isArray(x) ? x : x?.items || [])).catch(() => {}) }, [])
   async function submit(e: React.FormEvent) {
     e.preventDefault(); setBusy(true); setMsg("")
-    try { await post("/interviews/", { candidate_id: Number(candidate), scheduled_at: \`\${date}T\${time}:00\` }); setMsg("Interview scheduled successfully.") }
+    try { await post("/interviews/", { candidate_id: Number(candidate), scheduled_at: `${date}T${time}:00` }); setMsg("Interview scheduled successfully.") }
     catch (e: any) { setMsg(e.message || "Could not schedule the interview.") }
     finally { setBusy(false) }
   }
   return <>
     <Header eyebrow="INTERVIEW CALENDAR" title="Calendar" subtitle="Create an interview and let the workflow handle the Google Meet session."/>
     <div className="schedule-layout"><article className="panel form-panel"><PanelTitle title="New interview" sub="Choose a candidate and interview time."/>
-      <form onSubmit={submit}><label>Candidate<select value={candidate} onChange={e => setCandidate(e.target.value)} required><option value="">Select candidate</option>{cands.map(x => <option value={x.id} key={x.id}>{x.name || x.full_name || \`Candidate #\${x.id}\`}</option>)}</select></label>
+      <form onSubmit={submit}><label>Candidate<select value={candidate} onChange={e => setCandidate(e.target.value)} required><option value="">Select candidate</option>{cands.map(x => <option value={x.id} key={x.id}>{x.name || x.full_name || `Candidate #${x.id}`}</option>)}</select></label>
       <label>Date<input type="date" value={date} onChange={e => setDate(e.target.value)} required/></label><label>Time<input type="time" value={time} onChange={e => setTime(e.target.value)} required/></label>
       <div className="schedule-summary"><b>Workflow</b><span>Google Calendar → Meet link → Alena interview → evaluation</span></div>
       <button className="primary-button full" disabled={busy}>{busy ? "Scheduling..." : "Schedule interview"}</button>{msg && <div className="notice">{msg}</div>}</form>
@@ -333,7 +332,7 @@ function Evaluations() {
     setMessage("")
     try {
       setMessage("Generating evaluation from the interview transcript...")
-      const result = await post(\`/evaluations/\${interviewId}/generate\`, {})
+      const result = await post(`/evaluations/${interviewId}/generate`, {})
       await load()
       setSelected(result)
       setMode("history")
@@ -345,7 +344,7 @@ function Evaluations() {
 
   async function openDetails(evaluation: AnyRow) {
     try {
-      const detail = await get(\`/evaluations/interview/\${evaluation.interview_id}/details\`)
+      const detail = await get(`/evaluations/interview/${evaluation.interview_id}/details`)
       setSelected({ ...detail.evaluation, interview: detail.interview, candidate: detail.candidate, interview_id: evaluation.interview_id })
     } catch { setSelected(evaluation) }
   }
@@ -362,7 +361,7 @@ function Evaluations() {
     {mode === "pending" ? <article className="panel table-panel">
       <PanelTitle title="Interviews awaiting evaluation" sub="Completed interviews without an evaluation are shown here."/>
       <div className="table-scroll"><table><thead><tr><th>Candidate</th><th>Interview</th><th>Completed</th><th>Action</th></tr></thead><tbody>
-        {pending.map(x => <tr key={x.id}><td><b>{x.candidate_name || x.candidate?.name || \`Candidate #\${x.candidate_id}\`}</b><small>Interview #{x.id}</small></td><td>{x.position || "Sales interview"}</td><td>{x.completed_at ? new Date(x.completed_at).toLocaleString() : "Completed"}</td><td><Button onClick={() => generate(Number(x.id))}>Evaluate</Button></td></tr>)}
+        {pending.map(x => <tr key={x.id}><td><b>{x.candidate_name || x.candidate?.name || `Candidate #${x.candidate_id}`}</b><small>Interview #{x.id}</small></td><td>{x.position || "Sales interview"}</td><td>{x.completed_at ? new Date(x.completed_at).toLocaleString() : "Completed"}</td><td><Button onClick={() => generate(Number(x.id))}>Evaluate</Button></td></tr>)}
       </tbody></table>{!pending.length && <Empty text="No interviews are waiting for evaluation."/>}</div>
     </article> : <article className="panel table-panel">
       <PanelTitle title="Evaluation history" sub="Open any completed evaluation for the full report."/>
@@ -391,16 +390,16 @@ function EvaluationModal({ data, onClose }: { data: AnyRow, onClose: () => void 
     if (!data.id) return
     setBusy(true)
     try {
-      const result = await post(\`/evaluations/\${data.id}/\${action}\`, {})
-      setReview(result.message || \`Evaluation \${action}d.\`)
+      const result = await post(`/evaluations/${data.id}/${action}`, {})
+      setReview(result.message || `Evaluation ${action}d.`)
     } catch (e: any) { setReview(e.message || "Unable to update recruiter review.") }
     finally { setBusy(false) }
   }
 
   return <div className="modal-backdrop" onClick={onClose}><div className="modal large-modal" onClick={e => e.stopPropagation()}>
-    <div className="modal-head"><div><span className="eyebrow">EVALUATION REPORT</span><h2>{data.candidate?.name || \`Interview #\${data.interview_id}\`}</h2><p className="modal-subtitle">Interview #{data.interview_id}</p></div><button onClick={onClose}>×</button></div>
+    <div className="modal-head"><div><span className="eyebrow">EVALUATION REPORT</span><h2>{data.candidate?.name || `Interview #${data.interview_id}`}</h2><p className="modal-subtitle">Interview #{data.interview_id}</p></div><button onClick={onClose}>×</button></div>
     <div className="score-hero"><strong>{data.overall_score ?? "—"}</strong><span>/ 100</span><Status value={data.result || "pending"}/></div>
-    <div className="detail-grid">{criteria.map(([n,,k]) => <div className="detail-score" key={k}><span>{n}</span><b>{data[k] ?? "—"}</b><div className="bar"><i style={{width:\`\${Math.min(Number(data[k]) || 0, 100)}%\`}}/></div></div>)}</div>
+    <div className="detail-grid">{criteria.map(([n,,k]) => <div className="detail-score" key={k}><span>{n}</span><b>{data[k] ?? "—"}</b><div className="bar"><i style={{width:`${Math.min(Number(data[k]) || 0, 100)}%`}}/></div></div>)}</div>
     <div className="report-grid"><div><h3>Strengths</h3><p>{data.strengths || "Not provided."}</p></div><div><h3>Weaknesses</h3><p>{data.weaknesses || "Not provided."}</p></div><div><h3>Recommendation</h3><p>{data.recommendation || "Not provided."}</p></div></div>
     <div className="review-actions"><span>Recruiter decision: <b>{data.recruiter_status || "pending"}</b></span><div><button className="secondary-button" disabled={busy} onClick={() => recruiterAction("reject")}>Reject</button><button className="primary-button" disabled={busy} onClick={() => recruiterAction("approve")}>Approve</button></div></div>
     {review && <div className="notice">{review}</div>}
