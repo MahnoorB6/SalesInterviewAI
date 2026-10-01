@@ -12,7 +12,7 @@ from elevenlabs.conversational_ai.conversation import (
     ConversationInitiationData,
 )
 
-import pyaudio
+import pyaudiowpatch as pyaudio
 import numpy as np
 from scipy.signal import resample_poly
 
@@ -191,9 +191,11 @@ class MeetAudioInterface(AudioInterface):
     """
 
     INPUT_RATE = 16000
+    CAPTURE_RATE = 48000
     OUTPUT_RATE = 48000
 
     INPUT_CHANNELS = 1
+    CAPTURE_CHANNELS = 2
     OUTPUT_CHANNELS = 2
 
     FORMAT = pyaudio.paInt16
@@ -203,9 +205,9 @@ class MeetAudioInterface(AudioInterface):
 
     def __init__(self):
 
-        self.input_device_name = os.getenv(
-            "ELEVENLABS_AUDIO_INPUT_DEVICE",
-            "CABLE Output (VB-Audio Virtual Cable)",
+        self.loopback_device_name = os.getenv(
+            "ELEVENLABS_AUDIO_LOOPBACK_DEVICE",
+            "",
         )
 
         self.output_device_name = os.getenv(
@@ -301,6 +303,42 @@ class MeetAudioInterface(AudioInterface):
         )
 
     # --------------------------------------------------
+    # Find WASAPI loopback
+    # --------------------------------------------------
+
+    def _find_loopback_device(self):
+
+        target = self.loopback_device_name.lower().strip()
+
+        if target:
+            for info in self._pa.get_loopback_device_info_generator():
+                name = str(info.get("name", ""))
+                if target in name.lower():
+                    return int(info["index"]), name
+
+        wasapi = self._pa.get_host_api_info_by_type(
+            pyaudio.paWASAPI
+        )
+
+        default_output = self._pa.get_device_info_by_index(
+            wasapi["defaultOutputDevice"]
+        )
+
+        default_name = str(
+            default_output.get("name", "")
+        )
+
+        for info in self._pa.get_loopback_device_info_generator():
+            name = str(info.get("name", ""))
+            if default_name.lower() in name.lower():
+                return int(info["index"]), name
+
+        raise RuntimeError(
+            "WASAPI loopback device not found for "
+            f"default Windows speaker: {default_name!r}"
+        )
+
+    # --------------------------------------------------
     # Start audio
     # --------------------------------------------------
 
@@ -313,10 +351,7 @@ class MeetAudioInterface(AudioInterface):
         self._pa = pyaudio.PyAudio()
 
         input_index, input_name = (
-            self._find_device(
-                self.input_device_name,
-                True,
-            )
+            self._find_loopback_device()
         )
 
         output_index, output_name = (
@@ -332,8 +367,8 @@ class MeetAudioInterface(AudioInterface):
 
         self._input_stream = self._pa.open(
             format=self.FORMAT,
-            channels=self.INPUT_CHANNELS,
-            rate=self.INPUT_RATE,
+            channels=self.CAPTURE_CHANNELS,
+            rate=self.CAPTURE_RATE,
             input=True,
             input_device_index=input_index,
             frames_per_buffer=self.INPUT_FRAMES,
@@ -363,9 +398,14 @@ class MeetAudioInterface(AudioInterface):
         )
 
         print(
-            f"[AUDIO] Input: "
-            f"16-bit PCM / mono / "
-            f"{self.INPUT_RATE} Hz"
+            f"[AUDIO] Candidate capture: "
+            f"WASAPI loopback / stereo / "
+            f"{self.CAPTURE_RATE} Hz"
+        )
+
+        print(
+            f"[AUDIO] ElevenLabs input: "
+            f"mono / {self.INPUT_RATE} Hz"
         )
 
         print(
@@ -411,13 +451,33 @@ class MeetAudioInterface(AudioInterface):
                     exception_on_overflow=False,
                 )
 
-                if (
-                    self._input_callback
-                    and audio
-                ):
+                if self._input_callback and audio:
+
+                    samples = np.frombuffer(
+                        audio,
+                        dtype=np.int16,
+                    )
+
+                    if self.CAPTURE_CHANNELS > 1:
+                        samples = samples.reshape(
+                            -1,
+                            self.CAPTURE_CHANNELS,
+                        ).mean(axis=1)
+
+                    resampled = resample_poly(
+                        samples,
+                        self.INPUT_RATE,
+                        self.CAPTURE_RATE,
+                    )
+
+                    resampled = np.clip(
+                        resampled,
+                        -32768,
+                        32767,
+                    ).astype(np.int16)
 
                     self._input_callback(
-                        audio
+                        resampled.tobytes()
                     )
 
             except Exception as error:
