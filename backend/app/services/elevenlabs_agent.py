@@ -13,6 +13,8 @@ from elevenlabs.conversational_ai.conversation import (
 )
 
 import pyaudio
+import numpy as np
+from scipy.signal import resample_poly
 
 from app.database.database import SessionLocal
 from app.models.interview import Interview
@@ -170,7 +172,8 @@ class MeetAudioInterface(AudioInterface):
     and voice generation. PyAudio is used only as the audio transport layer.
     """
 
-    RATE = 16000
+    INPUT_RATE = 16000
+    OUTPUT_RATE = 44100
     CHANNELS = 1
     FORMAT = pyaudio.paInt16
     INPUT_FRAMES = 4000
@@ -233,7 +236,7 @@ class MeetAudioInterface(AudioInterface):
         self._input_stream = self._pa.open(
             format=self.FORMAT,
             channels=self.CHANNELS,
-            rate=self.RATE,
+            rate=self.INPUT_RATE,
             input=True,
             input_device_index=input_index,
             frames_per_buffer=self.INPUT_FRAMES,
@@ -242,7 +245,7 @@ class MeetAudioInterface(AudioInterface):
         self._output_stream = self._pa.open(
             format=self.FORMAT,
             channels=self.CHANNELS,
-            rate=self.RATE,
+            rate=self.OUTPUT_RATE,
             output=True,
             output_device_index=output_index,
             frames_per_buffer=self.OUTPUT_FRAMES,
@@ -250,7 +253,8 @@ class MeetAudioInterface(AudioInterface):
 
         print(f"[AUDIO] ElevenLabs input: {input_name}")
         print(f"[AUDIO] ElevenLabs output: {output_name}")
-        print(f"[AUDIO] Format: 16-bit PCM / mono / {self.RATE} Hz")
+        print(f"[AUDIO] Input: 16-bit PCM / mono / {self.INPUT_RATE} Hz")
+        print(f"[AUDIO] Output: 16-bit PCM / mono / {self.OUTPUT_RATE} Hz")
 
         self._output_thread = threading.Thread(
             target=self._output_worker,
@@ -296,8 +300,33 @@ class MeetAudioInterface(AudioInterface):
                     print(f"[AUDIO OUTPUT ERROR] {error}")
 
     def output(self, audio: bytes):
-        if not self._stop_event.is_set():
-            self._output_queue.put(audio)
+        if self._stop_event.is_set():
+            return
+
+        try:
+            samples = np.frombuffer(audio, dtype=np.int16)
+
+            if samples.size == 0:
+                return
+
+            resampled = resample_poly(
+                samples,
+                self.OUTPUT_RATE,
+                self.INPUT_RATE,
+            )
+
+            resampled = np.clip(
+                resampled,
+                -32768,
+                32767,
+            ).astype(np.int16)
+
+            self._output_queue.put(
+                resampled.tobytes()
+            )
+
+        except Exception as error:
+            print(f"[AUDIO OUTPUT CONVERSION ERROR] {error}")
 
     def interrupt(self):
         while True:
