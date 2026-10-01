@@ -185,7 +185,7 @@ class MeetAudioInterface(AudioInterface):
     def __init__(self):
         self.input_device_name = os.getenv(
             "ELEVENLABS_AUDIO_INPUT_DEVICE",
-            "CABLE Output (VB-Audio Virtual Cable)",
+            "CABLE Output (VB-Audio Cable A)",
         )
         self.output_device_name = os.getenv(
             "ELEVENLABS_AUDIO_OUTPUT_DEVICE",
