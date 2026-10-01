@@ -1,6 +1,7 @@
 import asyncio
 import os
 import sys
+import json
 from pathlib import Path
 
 from playwright.async_api import async_playwright
@@ -36,7 +37,77 @@ def update_recording_path(interview_id: int, path: str):
 
 
 async def create_browser(playwright):
-    """Open Chrome with the saved Google account."""
+    """Open Chrome with the saved Google account and force Meet audio routing."""
+
+    meet_mic = os.getenv(
+        "MEET_MIC_DEVICE",
+        "CABLE Output (VB-Audio Virtual Cable)",
+    )
+
+    meet_mic_script = """
+(() => {
+    const targetName = %TARGET_MIC%;
+
+    const originalGetUserMedia =
+        navigator.mediaDevices.getUserMedia.bind(
+            navigator.mediaDevices
+        );
+
+    navigator.mediaDevices.getUserMedia = async function(constraints) {
+        if (!constraints || !constraints.audio) {
+            return originalGetUserMedia(constraints);
+        }
+
+        try {
+            const devices =
+                await navigator.mediaDevices.enumerateDevices();
+
+            const target = devices.find(
+                d =>
+                    d.kind === "audioinput" &&
+                    d.label.toLowerCase().includes(
+                        targetName.toLowerCase()
+                    )
+            );
+
+            if (target) {
+                const audioConstraints =
+                    constraints.audio === true
+                        ? {}
+                        : { ...constraints.audio };
+
+                audioConstraints.deviceId = {
+                    exact: target.deviceId,
+                };
+
+                constraints = {
+                    ...constraints,
+                    audio: audioConstraints,
+                };
+
+                console.log(
+                    "[MEET AUDIO] Forced microphone:",
+                    target.label
+                );
+            } else {
+                console.warn(
+                    "[MEET AUDIO] Target microphone not found:",
+                    targetName
+                );
+            }
+        } catch (error) {
+            console.warn(
+                "[MEET AUDIO] Could not select target microphone:",
+                error
+            );
+        }
+
+        return originalGetUserMedia(constraints);
+    };
+})();
+""".replace("%TARGET_MIC%", JSON.stringify(meet_mic))
+
+    context = await playwright.chromium.launch_persistent_context(
 
     context = await playwright.chromium.launch_persistent_context(
         user_data_dir=str(PROFILE_DIR),
@@ -57,7 +128,39 @@ async def create_browser(playwright):
         ],
     )
 
+    await context.add_init_script(script=meet_mic_script)
+
     return context
+
+
+async def ensure_meet_microphone_on(page):
+    """Make sure Google Meet is sending the virtual microphone."""
+
+    selectors = [
+        "Turn on microphone",
+        "Turn on mic",
+        "Unmute",
+    ]
+
+    for name in selectors:
+        try:
+            button = page.get_by_role(
+                "button",
+                name=name,
+            )
+            if await button.is_visible():
+                await button.click()
+                print(
+                    f"[MEET AUDIO] Microphone enabled: {name}"
+                )
+                return
+        except Exception:
+            pass
+
+    print(
+        "[MEET AUDIO] Microphone button was not found; "
+        "Meet may already be unmuted."
+    )
 
 
 async def join_meet(page, meet_link: str):
@@ -104,6 +207,10 @@ async def join_meet(page, meet_link: str):
             pass
 
     await page.wait_for_timeout(5000)
+
+    await ensure_meet_microphone_on(page)
+
+    await page.wait_for_timeout(1500)
 
 
 async def leave_meet(page):
