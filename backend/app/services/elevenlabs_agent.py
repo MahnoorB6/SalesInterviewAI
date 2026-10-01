@@ -12,7 +12,7 @@ from elevenlabs.conversational_ai.conversation import (
     ConversationInitiationData,
 )
 
-import pyaudio
+import pyaudiowpatch as pyaudio
 import numpy as np
 from scipy.signal import resample_poly
 
@@ -166,32 +166,33 @@ class MeetAudioInterface(AudioInterface):
     """Transport Google Meet audio to and from ElevenLabs.
 
     ElevenLabs handles speech recognition, conversation logic, and voice
-    generation. PyAudio is only the transport layer.
+    generation. PyAudioWPatch is only the Windows audio transport and
+    WASAPI loopback capture layer.
 
-    IMPORTANT:
-    The input and output devices must be independent virtual audio paths.
-    Using the same VB-Audio cable for both directions creates an audio
-    feedback loop because Alena's own output is captured as her input.
+    Routing:
+        Google Meet speakers -> WASAPI loopback -> ElevenLabs input
+        ElevenLabs output -> VB-CABLE Input -> VB-CABLE Output
+        -> Google Meet microphone
+
+    This uses the existing single VB-CABLE. No A+B and no Voicemeeter.
     """
 
     INPUT_RATE = 16000
     OUTPUT_RATE = 48000
-    INPUT_CHANNELS = 1
     OUTPUT_CHANNELS = 2
     FORMAT = pyaudio.paInt16
-    INPUT_FRAMES = 4000
+    INPUT_FRAMES = 960
     OUTPUT_FRAMES = 1000
 
     def __init__(self):
-        self.input_device_name = os.getenv(
-            "ELEVENLABS_AUDIO_INPUT_DEVICE",
-            "CABLE Output (VB-Audio Cable A)",
-        )
         self.output_device_name = os.getenv(
             "ELEVENLABS_AUDIO_OUTPUT_DEVICE",
-            "CABLE Input (VB-Audio Cable B)",
+            "CABLE Input (VB-Audio Virtual Cable)",
         )
-
+        self.loopback_device_name = os.getenv(
+            "ELEVENLABS_AUDIO_LOOPBACK_DEVICE",
+            "",
+        )
         self._pa = None
         self._input_stream = None
         self._output_stream = None
@@ -199,75 +200,90 @@ class MeetAudioInterface(AudioInterface):
         self._output_queue = queue.Queue()
         self._stop_event = threading.Event()
         self._output_thread = None
+        self._input_channels = 2
+        self._input_rate = 48000
 
-    def _device_family(self, name):
-        normalized = name.lower()
-        for token in (
-            "vb-audio",
-            "virtual",
-            "cable",
-            "input",
-            "output",
-            " ",
-            "(",
-            ")",
-        ):
-            normalized = normalized.replace(token, "")
-        return normalized
-
-    def _find_device(self, name, input_device):
+    def _find_output_device(self, name):
         target = name.lower().strip()
-        channel_key = "maxInputChannels" if input_device else "maxOutputChannels"
 
         for index in range(self._pa.get_device_count()):
             info = self._pa.get_device_info_by_index(index)
             device_name = str(info.get("name", ""))
-            if target in device_name.lower() and int(info.get(channel_key, 0)) > 0:
+
+            if (
+                target in device_name.lower()
+                and int(info.get("maxOutputChannels", 0)) > 0
+            ):
                 return index, device_name
 
-        direction = "input" if input_device else "output"
         available = []
         for index in range(self._pa.get_device_count()):
             info = self._pa.get_device_info_by_index(index)
-            if int(info.get(channel_key, 0)) > 0:
-                available.append(f"{index}: {info.get('name', '')}")
+
+            if int(info.get("maxOutputChannels", 0)) > 0:
+                available.append(
+                    f"{index}: {info.get('name', '')}"
+                )
 
         raise RuntimeError(
-            f"ElevenLabs {direction} device not found: {name!r}. "
-            f"Available {direction} devices: {available}"
+            f"ElevenLabs output device not found: {name!r}. "
+            f"Available output devices: {available}"
         )
+
+    def _find_loopback_device(self):
+        if self.loopback_device_name:
+            target = self.loopback_device_name.lower().strip()
+
+            for info in self._pa.get_loopback_device_info_generator():
+                device_name = str(info.get("name", ""))
+
+                if target in device_name.lower():
+                    return info
+
+            raise RuntimeError(
+                "Requested WASAPI loopback device was not found: "
+                f"{self.loopback_device_name!r}"
+            )
+
+        try:
+            return self._pa.get_default_wasapi_loopback()
+        except (OSError, LookupError) as error:
+            raise RuntimeError(
+                "Could not find the WASAPI loopback for the default "
+                "Windows speaker. Make sure Google Meet uses the "
+                "physical/default Windows speakers."
+            ) from error
 
     def start(self, input_callback):
         self._input_callback = input_callback
         self._stop_event.clear()
         self._pa = pyaudio.PyAudio()
 
-        input_index, input_name = self._find_device(
-            self.input_device_name,
-            True,
+        loopback = self._find_loopback_device()
+        loopback_index = int(loopback["index"])
+        loopback_name = str(loopback["name"])
+
+        self._input_channels = max(
+            1,
+            min(
+                int(loopback.get("maxInputChannels", 2)),
+                2,
+            ),
         )
-        output_index, output_name = self._find_device(
-            self.output_device_name,
-            False,
+        self._input_rate = int(
+            loopback.get("defaultSampleRate", 48000)
         )
 
-        input_family = self._device_family(input_name)
-        output_family = self._device_family(output_name)
-
-        if input_family and input_family == output_family:
-            raise RuntimeError(
-                "ElevenLabs audio input and output use the same virtual "
-                "audio cable. Choose two independent VB-Audio paths to "
-                "prevent Alena from hearing her own voice. "
-                f"Input={input_name!r}, Output={output_name!r}"
-            )
+        output_index, output_name = self._find_output_device(
+            self.output_device_name
+        )
 
         self._input_stream = self._pa.open(
             format=self.FORMAT,
-            channels=self.INPUT_CHANNELS,
-            rate=self.INPUT_RATE,
+            channels=self._input_channels,
+            rate=self._input_rate,
             input=True,
-            input_device_index=input_index,
+            input_device_index=loopback_index,
             frames_per_buffer=self.INPUT_FRAMES,
         )
 
@@ -280,11 +296,15 @@ class MeetAudioInterface(AudioInterface):
             frames_per_buffer=self.OUTPUT_FRAMES,
         )
 
-        print(f"[AUDIO] ElevenLabs input: {input_name}")
-        print(f"[AUDIO] ElevenLabs output: {output_name}")
-        print(f"[AUDIO] Input: 16-bit PCM / mono / {self.INPUT_RATE} Hz")
+        print(f"[AUDIO] ElevenLabs input: {loopback_name}")
         print(
-            f"[AUDIO] Output: 16-bit PCM / stereo / {self.OUTPUT_RATE} Hz"
+            "[AUDIO] Input: WASAPI loopback / "
+            f"{self._input_channels}ch / {self._input_rate} Hz"
+        )
+        print(f"[AUDIO] ElevenLabs output: {output_name}")
+        print(
+            "[AUDIO] Output: 16-bit PCM / stereo / "
+            f"{self.OUTPUT_RATE} Hz"
         )
 
         self._output_thread = threading.Thread(
@@ -307,8 +327,40 @@ class MeetAudioInterface(AudioInterface):
                     self.INPUT_FRAMES,
                     exception_on_overflow=False,
                 )
-                if self._input_callback and audio:
-                    self._input_callback(audio)
+
+                if not audio or not self._input_callback:
+                    continue
+
+                samples = np.frombuffer(
+                    audio,
+                    dtype=np.int16,
+                )
+
+                if self._input_channels > 1:
+                    usable = (
+                        samples.size // self._input_channels
+                    ) * self._input_channels
+
+                    samples = samples[:usable].reshape(
+                        -1,
+                        self._input_channels,
+                    ).mean(axis=1)
+
+                if self._input_rate != self.INPUT_RATE:
+                    samples = resample_poly(
+                        samples,
+                        self.INPUT_RATE,
+                        self._input_rate,
+                    )
+
+                samples = np.clip(
+                    samples,
+                    -32768,
+                    32767,
+                ).astype(np.int16)
+
+                self._input_callback(samples.tobytes())
+
             except Exception as error:
                 if not self._stop_event.is_set():
                     print(f"[AUDIO INPUT ERROR] {error}")
@@ -335,7 +387,10 @@ class MeetAudioInterface(AudioInterface):
             return
 
         try:
-            samples = np.frombuffer(audio, dtype=np.int16)
+            samples = np.frombuffer(
+                audio,
+                dtype=np.int16,
+            )
 
             if samples.size == 0:
                 return
@@ -356,12 +411,12 @@ class MeetAudioInterface(AudioInterface):
                 (resampled, resampled)
             )
 
-            self._output_queue.put(
-                stereo.tobytes()
-            )
+            self._output_queue.put(stereo.tobytes())
 
         except Exception as error:
-            print(f"[AUDIO OUTPUT CONVERSION ERROR] {error}")
+            print(
+                f"[AUDIO OUTPUT CONVERSION ERROR] {error}"
+            )
 
     def interrupt(self):
         while True:
@@ -375,12 +430,16 @@ class MeetAudioInterface(AudioInterface):
         self.interrupt()
         self._output_queue.put(None)
 
-        for stream in (self._input_stream, self._output_stream):
+        for stream in (
+            self._input_stream,
+            self._output_stream,
+        ):
             if stream is not None:
                 try:
                     stream.stop_stream()
                 except Exception:
                     pass
+
                 try:
                     stream.close()
                 except Exception:
