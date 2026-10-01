@@ -108,8 +108,6 @@ async def create_browser(playwright):
 """.replace("%TARGET_MIC%", JSON.stringify(meet_mic))
 
     context = await playwright.chromium.launch_persistent_context(
-
-    context = await playwright.chromium.launch_persistent_context(
         user_data_dir=str(PROFILE_DIR),
         channel="chrome",
         headless=False,
