@@ -105,7 +105,7 @@ async def create_browser(playwright):
         return originalGetUserMedia(constraints);
     };
 })();
-""".replace("%TARGET_MIC%", JSON.stringify(meet_mic))
+""".replace("%TARGET_MIC%", json.dumps(meet_mic))
 
     context = await playwright.chromium.launch_persistent_context(
         user_data_dir=str(PROFILE_DIR),
