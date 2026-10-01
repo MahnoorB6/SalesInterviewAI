@@ -2,6 +2,7 @@ from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import RedirectResponse
 from google_auth_oauthlib.flow import Flow
 import os
+from pathlib import Path
 
 from app.services.google_oauth import (
     get_authorization_url,
@@ -21,6 +22,13 @@ router = APIRouter(
 
 oauth_state = None
 oauth_code_verifier = None
+
+
+@router.get("/status")
+def google_status():
+    backend_directory = Path(__file__).resolve().parents[2]
+    token_path = backend_directory / "token.json"
+    return {"connected": token_path.exists()}
 
 
 # ============================================================
