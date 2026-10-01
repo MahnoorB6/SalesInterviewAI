@@ -1,13 +1,19 @@
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import RedirectResponse
 from google_auth_oauthlib.flow import Flow
+from google.auth.transport.requests import Request as GoogleRequest
+from google.oauth2 import id_token
 import os
+import secrets
 from pathlib import Path
 
 from app.services.google_oauth import (
     get_authorization_url,
     SCOPES,
 )
+from app.database.database import SessionLocal
+from app.models.user import User
+from app.auth import create_access_token, hash_password
 
 
 router = APIRouter(
@@ -161,6 +167,41 @@ def google_callback(
 
         credentials = flow.credentials
 
+        if not credentials.id_token:
+            raise HTTPException(
+                status_code=400,
+                detail="Google did not return an identity token."
+            )
+
+        google_identity = id_token.verify_oauth2_token(
+            credentials.id_token,
+            GoogleRequest(),
+            os.getenv("GOOGLE_CLIENT_ID"),
+        )
+
+        google_email = google_identity.get("email")
+        if not google_email:
+            raise HTTPException(
+                status_code=400,
+                detail="Google account email could not be verified."
+            )
+
+        db = SessionLocal()
+        try:
+            user = db.query(User).filter(User.email == google_email).first()
+            if not user:
+                user = User(
+                    email=google_email,
+                    hashed_password=hash_password(secrets.token_urlsafe(32)),
+                )
+                db.add(user)
+                db.commit()
+                db.refresh(user)
+
+            access_token = create_access_token({"sub": user.email})
+        finally:
+            db.close()
+
         # ----------------------------------------------------
         # FIND BACKEND DIRECTORY
         # ----------------------------------------------------
@@ -208,8 +249,8 @@ def google_callback(
         # ----------------------------------------------------
 
         return RedirectResponse(
-    url="http://localhost:5173/login.html"
-)
+            url=f"http://localhost:5173/?google_token={access_token}"
+        )
 
     except Exception as error:
 
