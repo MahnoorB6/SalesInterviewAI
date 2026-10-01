@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.database.database import get_db
@@ -601,23 +601,22 @@ def get_interview(
 
 @router.get(
     "/{interview_id}/transcript",
-    response_class=PlainTextResponse,
+    response_class=FileResponse,
 )
 def get_interview_transcript(
     interview_id: int,
     db: Session = Depends(get_db),
 ):
     """
-    Return the saved transcript for an interview.
+    Return the actual saved .txt transcript file.
 
-    This endpoint does NOT call Gemini or ElevenLabs.
+    The file is continuously updated while the interview is running,
+    so this endpoint works for in-progress and completed interviews.
     """
 
     interview = (
         db.query(Interview)
-        .filter(
-            Interview.id == interview_id
-        )
+        .filter(Interview.id == interview_id)
         .first()
     )
 
@@ -636,51 +635,24 @@ def get_interview_transcript(
     if not transcript_path:
         raise HTTPException(
             status_code=404,
-            detail="Transcript is not available.",
+            detail="Transcript is not available for this interview yet.",
         )
 
     transcript_path = os.path.abspath(
-        os.path.expanduser(
-            transcript_path
-        )
+        os.path.expanduser(transcript_path)
     )
 
-    if not os.path.isfile(
-        transcript_path
-    ):
+    if not os.path.isfile(transcript_path):
         raise HTTPException(
             status_code=404,
             detail="Transcript file not found.",
         )
 
-    try:
-        try:
-            with open(
-                transcript_path,
-                "r",
-                encoding="utf-8",
-            ) as file:
-                transcript = file.read()
-
-        except UnicodeDecodeError:
-            with open(
-                transcript_path,
-                "r",
-                encoding="utf-8-sig",
-            ) as file:
-                transcript = file.read()
-
-    except Exception as error:
-        raise HTTPException(
-            status_code=500,
-            detail=(
-                f"Unable to read transcript: {error}"
-            ),
-        )
-
-    return PlainTextResponse(
-        content=transcript,
-        media_type="text/plain; charset=utf-8",
+    return FileResponse(
+        path=transcript_path,
+        media_type="text/plain",
+        filename=os.path.basename(transcript_path),
+        content_disposition_type="inline",
     )
 
 
@@ -946,53 +918,6 @@ def get_interview_questions(
 
 
 
-# ============================================================
-# GET INTERVIEW TRANSCRIPT
-# ============================================================
-
-@router.get(
-    "/{interview_id}/transcript",
-    response_class=PlainTextResponse,
-)
-def get_interview_transcript(
-    interview_id: int,
-    db: Session = Depends(get_db),
-):
-    interview = (
-        db.query(Interview)
-        .filter(Interview.id == interview_id)
-        .first()
-    )
-
-    if not interview:
-        raise HTTPException(
-            status_code=404,
-            detail="Interview not found.",
-        )
-
-    if not interview.transcript_path:
-        raise HTTPException(
-            status_code=404,
-            detail="Transcript is not available for this interview yet.",
-        )
-
-    transcript_path = os.path.abspath(
-        interview.transcript_path
-    )
-
-    if not os.path.exists(transcript_path):
-        raise HTTPException(
-            status_code=404,
-            detail="Transcript file not found.",
-        )
-
-    try:
-        with open(
-            transcript_path,
-            "r",
-            encoding="utf-8",
-        ) as transcript_file:
-            return transcript_file.read()
 
     except Exception as error:
         raise HTTPException(
