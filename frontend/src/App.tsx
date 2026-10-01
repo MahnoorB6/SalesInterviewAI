@@ -69,7 +69,15 @@ function navigate(page: string, params = "") {
   window.dispatchEvent(new PopStateEvent("popstate"))
 }
 
-function SplashScreen() {\n  return <div className="splash-screen"><div className="splash-name">SalesInterviewAI</div></div>\n}\n\nfunction currentPage() {
+function SplashScreen() {
+  return (
+    <div className="splash-screen">
+      <div className="splash-name">SalesInterviewAI</div>
+    </div>
+  )
+}
+
+function currentPage() {
   return new URLSearchParams(window.location.search).get("page") || "dashboard"
 }
 
