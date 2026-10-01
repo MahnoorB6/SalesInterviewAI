@@ -120,6 +120,7 @@ async def create_browser(playwright):
         args=[
             "--disable-blink-features=AutomationControlled",
             "--autoplay-policy=no-user-gesture-required",
+            "--use-fake-ui-for-media-stream",
             "--window-size=900,600",
             "--window-position=50,50",
             "--force-device-scale-factor=1",
@@ -127,6 +128,10 @@ async def create_browser(playwright):
     )
 
     await context.add_init_script(script=meet_mic_script)
+
+    print(
+        f"[MEET AUDIO] Forced microphone target: {meet_mic}"
+    )
 
     return context
 
