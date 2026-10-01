@@ -44,21 +44,16 @@ def google_status():
 @router.get("/login")
 def google_login():
 
-    global oauth_state
-    global oauth_code_verifier
-
     (
         authorization_url,
         state,
         code_verifier,
     ) = get_authorization_url()
 
-    oauth_state = state
-    oauth_code_verifier = code_verifier
-
-    return RedirectResponse(
-        url=authorization_url
-    )
+    response = RedirectResponse(url=authorization_url)
+    response.set_cookie(key="google_oauth_state", value=state, httponly=True, samesite="lax", secure=False, max_age=600)
+    response.set_cookie(key="google_oauth_code_verifier", value=code_verifier, httponly=True, samesite="lax", secure=False, max_age=600)
+    return response
 
 
 # ============================================================
@@ -69,9 +64,6 @@ def google_login():
 def google_callback(
     request: Request,
 ):
-
-    global oauth_state
-    global oauth_code_verifier
 
     # --------------------------------------------------------
     # GET GOOGLE PARAMETERS
@@ -93,20 +85,19 @@ def google_callback(
         )
 
     # --------------------------------------------------------
-    # VERIFY STATE
+    # VERIFY STATE FROM OAUTH COOKIE
     # --------------------------------------------------------
 
-    if state != oauth_state:
+    stored_state = request.cookies.get("google_oauth_state")
+    code_verifier = request.cookies.get("google_oauth_code_verifier")
+
+    if not stored_state or state != stored_state:
         raise HTTPException(
             status_code=400,
             detail="Invalid Google OAuth state."
         )
 
-    # --------------------------------------------------------
-    # VERIFY CODE VERIFIER
-    # --------------------------------------------------------
-
-    if not oauth_code_verifier:
+    if not code_verifier:
         raise HTTPException(
             status_code=400,
             detail="Google OAuth code verifier is missing."
@@ -143,8 +134,8 @@ def google_callback(
                 }
             },
             scopes=SCOPES,
-            state=state,
-            code_verifier=oauth_code_verifier,
+            state=stored_state,
+            code_verifier=code_verifier,
         )
 
         # ----------------------------------------------------
@@ -238,19 +229,13 @@ def google_callback(
             )
 
         # ----------------------------------------------------
-        # CLEAR TEMPORARY OAUTH DATA
-        # ----------------------------------------------------
-
-        oauth_state = None
-        oauth_code_verifier = None
-
-        # ----------------------------------------------------
         # REDIRECT TO LOGIN PAGE
         # ----------------------------------------------------
 
-        return RedirectResponse(
-            url=f"http://localhost:5173/?google_token={access_token}"
-        )
+        response = RedirectResponse(url=f"http://localhost:5173/?google_token={access_token}")
+        response.delete_cookie("google_oauth_state")
+        response.delete_cookie("google_oauth_code_verifier")
+        return response
 
     except Exception as error:
 
