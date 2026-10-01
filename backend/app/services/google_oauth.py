@@ -23,6 +23,9 @@ os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
 # ============================================================
 
 SCOPES = [
+    "openid",
+    "email",
+    "profile",
     "https://www.googleapis.com/auth/calendar",
     "https://www.googleapis.com/auth/gmail.send",
 ]
