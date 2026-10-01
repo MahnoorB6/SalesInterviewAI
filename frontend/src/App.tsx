@@ -263,7 +263,7 @@ function Interviews() {
     <Header eyebrow="INTERVIEW OPERATIONS" title="Interviews" subtitle="Monitor every scheduled and completed AI interview." action={<Button onClick={() => navigate("schedule")}>+ Schedule interview</Button>} />
     <div className="filter-tabs">{["all","scheduled","in_progress","completed","cancelled"].map(x => <button className={filter === x ? "selected" : ""} onClick={() => setFilter(x)} key={x}>{x.replace("_"," ")}</button>)}</div>
     <article className="panel table-panel"><PanelTitle title="Interview pipeline" sub={`${data.length} interviews in this view.`} />
-      <div className="table-scroll"><table><thead><tr><th>Candidate</th><th>Scheduled</th><th>Status</th><th>Meet</th><th>Evaluation</th></tr></thead><tbody>{data.map(x => <tr key={x.id}><td><b>{x.candidate_name || x.candidate?.name || `Candidate #${x.candidate_id}`}</b><small>Interview #{x.id}</small></td><td>{x.scheduled_at ? new Date(x.scheduled_at).toLocaleString() : "—"}</td><td><Status value={x.status}/></td><td>{x.meet_link ? <a className="link" href={x.meet_link} target="_blank" rel="noreferrer">Open Meet</a> : "—"}</td><td><Button secondary onClick={() => navigate("evaluations", `&interview=${x.id}`)}>Evaluate</Button></td></tr>)}</tbody></table>{!data.length && <Empty text="No interviews in this status."/>}</div>
+      <div className="table-scroll"><table><thead><tr><th>Candidate</th><th>Scheduled</th><th>Status</th><th>Meet</th><th>Evaluation</th><th>Transcript</th></tr></thead><tbody>{data.map(x => <tr key={x.id}><td><b>{x.candidate_name || x.candidate?.name || `Candidate #${x.candidate_id}`}</b><small>Interview #{x.id}</small></td><td>{x.scheduled_at ? new Date(x.scheduled_at).toLocaleString() : "—"}</td><td><Status value={x.status}/></td><td>{x.meet_link ? <a className="link" href={x.meet_link} target="_blank" rel="noreferrer">Open Meet</a> : "—"}</td><td><Button secondary onClick={() => navigate("evaluations", `&interview=${x.id}`)}>Evaluate</Button></td><td>{x.transcript_path ? <a className="link" href={`/api/interviews/${x.id}/transcript`} target="_blank" rel="noreferrer">View transcript</a> : "—"}</td></tr>)}</tbody></table>{!data.length && <Empty text="No interviews in this status."/>}</div>
     </article>
   </>
 }
@@ -343,7 +343,7 @@ function Evaluations() {
   }
 
   return <>
-    <Header eyebrow="AI ASSESSMENT" title="Evaluations" subtitle="Evaluate completed interviews using the standardized SalesInterviewAI rubric." />
+    <Header eyebrow="AI ASSESSMENT" title="Evaluations" subtitle="Evaluate completed interviews using the standardized SalesInterviewAI rubric." action={<Button onClick={() => setMode("pending")}>+ New evaluation</Button>} />
     <div className="evaluation-tabs">
       <button className={mode === "pending" ? "selected" : ""} onClick={() => setMode("pending")}>Pending evaluation <b>{pending.length}</b></button>
       <button className={mode === "history" ? "selected" : ""} onClick={() => setMode("history")}>Evaluation history <b>{evaluations.length}</b></button>
