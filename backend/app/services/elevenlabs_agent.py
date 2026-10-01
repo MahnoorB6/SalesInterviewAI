@@ -163,18 +163,21 @@ def mark_interrupted(interview_id: int):
 
 
 class MeetAudioInterface(AudioInterface):
-    """Route ElevenLabs audio between Google Meet and two virtual devices.
+    """Transport Google Meet audio to and from ElevenLabs.
 
-    Input:  Google Meet speaker -> CABLE Output -> ElevenLabs
-    Output: ElevenLabs -> VB-Audio Point Output -> Google Meet microphone
+    ElevenLabs handles speech recognition, conversation logic, and voice
+    generation. PyAudio is only the transport layer.
 
-    ElevenLabs remains responsible for speech recognition, conversation logic,
-    and voice generation. PyAudio is used only as the audio transport layer.
+    IMPORTANT:
+    The input and output devices must be independent virtual audio paths.
+    Using the same VB-Audio cable for both directions creates an audio
+    feedback loop because Alena's own output is captured as her input.
     """
 
     INPUT_RATE = 16000
-    OUTPUT_RATE = 44100
-    CHANNELS = 1
+    OUTPUT_RATE = 48000
+    INPUT_CHANNELS = 1
+    OUTPUT_CHANNELS = 2
     FORMAT = pyaudio.paInt16
     INPUT_FRAMES = 4000
     OUTPUT_FRAMES = 1000
@@ -186,7 +189,7 @@ class MeetAudioInterface(AudioInterface):
         )
         self.output_device_name = os.getenv(
             "ELEVENLABS_AUDIO_OUTPUT_DEVICE",
-            "Output (VB-Audio Point)",
+            "CABLE Input (VB-Audio Cable B)",
         )
 
         self._pa = None
@@ -196,6 +199,21 @@ class MeetAudioInterface(AudioInterface):
         self._output_queue = queue.Queue()
         self._stop_event = threading.Event()
         self._output_thread = None
+
+    def _device_family(self, name):
+        normalized = name.lower()
+        for token in (
+            "vb-audio",
+            "virtual",
+            "cable",
+            "input",
+            "output",
+            " ",
+            "(",
+            ")",
+        ):
+            normalized = normalized.replace(token, "")
+        return normalized
 
     def _find_device(self, name, input_device):
         target = name.lower().strip()
@@ -233,9 +251,20 @@ class MeetAudioInterface(AudioInterface):
             False,
         )
 
+        input_family = self._device_family(input_name)
+        output_family = self._device_family(output_name)
+
+        if input_family and input_family == output_family:
+            raise RuntimeError(
+                "ElevenLabs audio input and output use the same virtual "
+                "audio cable. Choose two independent VB-Audio paths to "
+                "prevent Alena from hearing her own voice. "
+                f"Input={input_name!r}, Output={output_name!r}"
+            )
+
         self._input_stream = self._pa.open(
             format=self.FORMAT,
-            channels=self.CHANNELS,
+            channels=self.INPUT_CHANNELS,
             rate=self.INPUT_RATE,
             input=True,
             input_device_index=input_index,
@@ -244,7 +273,7 @@ class MeetAudioInterface(AudioInterface):
 
         self._output_stream = self._pa.open(
             format=self.FORMAT,
-            channels=self.CHANNELS,
+            channels=self.OUTPUT_CHANNELS,
             rate=self.OUTPUT_RATE,
             output=True,
             output_device_index=output_index,
@@ -254,7 +283,9 @@ class MeetAudioInterface(AudioInterface):
         print(f"[AUDIO] ElevenLabs input: {input_name}")
         print(f"[AUDIO] ElevenLabs output: {output_name}")
         print(f"[AUDIO] Input: 16-bit PCM / mono / {self.INPUT_RATE} Hz")
-        print(f"[AUDIO] Output: 16-bit PCM / mono / {self.OUTPUT_RATE} Hz")
+        print(
+            f"[AUDIO] Output: 16-bit PCM / stereo / {self.OUTPUT_RATE} Hz"
+        )
 
         self._output_thread = threading.Thread(
             target=self._output_worker,
@@ -321,8 +352,12 @@ class MeetAudioInterface(AudioInterface):
                 32767,
             ).astype(np.int16)
 
+            stereo = np.column_stack(
+                (resampled, resampled)
+            )
+
             self._output_queue.put(
-                resampled.tobytes()
+                stereo.tobytes()
             )
 
         except Exception as error:
