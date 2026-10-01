@@ -69,92 +69,52 @@ function navigate(page: string, params = "") {
   window.dispatchEvent(new PopStateEvent("popstate"))
 }
 
-function currentPage() {
+function SplashScreen() {\n  return <div className="splash-screen"><div className="splash-name">SalesInterviewAI</div></div>\n}\n\nfunction currentPage() {
   return new URLSearchParams(window.location.search).get("page") || "dashboard"
 }
 
-function Login({ onLogin }: { onLogin: () => void }) {
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
+function GoogleGate({ onConnected }: { onConnected: (accessToken: string) => void }) {
   const [busy, setBusy] = useState(false)
-  const [googleBusy, setGoogleBusy] = useState(false)
-  const [googleConnected, setGoogleConnected] = useState(false)
+  const [connected, setConnected] = useState(false)
   const [error, setError] = useState("")
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
-    if (params.get("google") === "connected") setGoogleConnected(true)
+    const googleToken = params.get("google_token")
+    if (googleToken) {
+      localStorage.setItem("access_token", googleToken)
+      window.history.replaceState({}, "", "/")
+      onConnected(googleToken)
+      return
+    }
+
     get("/google/status")
-      .then(data => setGoogleConnected(Boolean(data.connected)))
+      .then(data => setConnected(Boolean(data.connected)))
       .catch(() => {})
-  }, [])
+  }, [onConnected])
 
   function connectGoogle() {
-    setGoogleBusy(true)
+    setBusy(true)
+    setError("")
     window.location.href = `${API}/google/login`
   }
 
-  async function submit(e: FormEvent) {
-    e.preventDefault()
-    setBusy(true)
-    setError("")
-    try {
-      const body = new URLSearchParams()
-      body.set("username", email)
-      body.set("password", password)
-
-      const response = await fetch(`${API}/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body,
-      })
-
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.detail || "Invalid email or password")
-
-      localStorage.setItem("access_token", data.access_token)
-      onLogin()
-    } catch (e: any) {
-      setError(e.message || "Unable to sign in.")
-    } finally {
-      setBusy(false)
-    }
-  }
-
   return (
-    <div className="login-page">
-      <div className="login-glow glow-one" />
-      <div className="login-glow glow-two" />
-      <section className="login-card">
-        <div className="login-logo">S</div>
-        <div className="login-brand">SalesInterviewAI</div>
-        <p className="login-kicker">AI-POWERED SALES INTERVIEW PLATFORM</p>
-        <h1>Welcome back</h1>
-        <p className="login-subtitle">Connect your Google account first, then sign in to your recruiter workspace.</p>
-
-        <div className="google-connect-box">
-          <div>
-            <strong>{googleConnected ? "Google account connected" : "Connect Google account"}</strong>
-            <span>{googleConnected ? "Calendar and email permissions are ready." : "Required for Meet scheduling, interview invites, approvals and rejection emails."}</span>
-          </div>
-          <button type="button" className={googleConnected ? "secondary-button" : "primary-button"} onClick={connectGoogle} disabled={googleBusy}>
-            {googleBusy ? "Connecting..." : googleConnected ? "Reconnect Google" : "Connect Google"}
-          </button>
-        </div>
-
-        <form onSubmit={submit} className="login-form">
-          <label>Email
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" required />
-          </label>
-          <label>Password
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Enter your password" required />
-          </label>
-          {error && <div className="login-error">{error}</div>}
-          <button className="primary-button login-submit" disabled={busy}>
-            {busy ? "Signing in..." : "Sign in"}
-          </button>
-        </form>
-        <div className="login-footer">Secure recruiter workspace · SalesInterviewAI</div>
+    <div className="google-gate">
+      <div className="google-gate-glow gate-glow-one" />
+      <div className="google-gate-glow gate-glow-two" />
+      <section className="google-gate-card">
+        <div className="google-gate-brand">SalesInterviewAI</div>
+        <p className="google-gate-kicker">RECRUITER WORKSPACE</p>
+        <h1>Connect Google</h1>
+        <p className="google-gate-subtitle">
+          Use your Google account to access SalesInterviewAI. This connects Google Calendar for Meet scheduling and Gmail for interview, approval and rejection emails.
+        </p>
+        <button className="primary-button google-gate-button" onClick={connectGoogle} disabled={busy}>
+          {busy ? "Connecting..." : connected ? "Continue with Google" : "Connect Google account"}
+        </button>
+        {error && <div className="login-error">{error}</div>}
+        <div className="google-gate-note">One Google connection replaces the separate email/password login.</div>
       </section>
     </div>
   )
@@ -438,14 +398,35 @@ function Empty({ text }: { text: string }) {
 export default function App() {
   const [loggedIn, setLoggedIn] = useState(false)
   const [page, setPage] = useState(currentPage())
+  const [showSplash, setShowSplash] = useState(true)
 
   useEffect(() => {
     const sync = () => setPage(currentPage())
-    const expired = () => { setLoggedIn(false); setPage("dashboard") }
+    const expired = () => {
+      localStorage.removeItem("access_token")
+      setLoggedIn(false)
+      setPage("dashboard")
+      window.history.replaceState({}, "", "/")
+    }
     window.addEventListener("popstate", sync)
     window.addEventListener("auth-expired", expired)
-    return () => { window.removeEventListener("popstate", sync); window.removeEventListener("auth-expired", expired) }
+    return () => {
+      window.removeEventListener("popstate", sync)
+      window.removeEventListener("auth-expired", expired)
+    }
   }, [])
+
+  useEffect(() => {
+    setShowSplash(true)
+    const timer = window.setTimeout(() => setShowSplash(false), 1100)
+    return () => window.clearTimeout(timer)
+  }, [page, loggedIn])
+
+  function loginWithGoogle(accessToken?: string) {
+    if (accessToken) localStorage.setItem("access_token", accessToken)
+    setLoggedIn(true)
+    setPage(currentPage())
+  }
 
   function logout() {
     localStorage.removeItem("access_token")
@@ -454,7 +435,9 @@ export default function App() {
     window.history.replaceState({}, "", "/")
   }
 
-  if (!loggedIn) return <Login onLogin={() => { setLoggedIn(true); navigate("dashboard") }} />
+  if (showSplash) return <SplashScreen />
+
+  if (!loggedIn) return <GoogleGate onConnected={loginWithGoogle} />
 
   const body =
     page === "candidates" ? <Candidates/> :
