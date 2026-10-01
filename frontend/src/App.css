@@ -98,3 +98,31 @@ h1 { margin: 5px 0 4px; font-size: 30px; letter-spacing: -.04em; color: #292331;
 
 @media (max-width: 1100px) { .stats-grid{grid-template-columns:repeat(2,1fr)} .dashboard-grid,.bottom-grid{grid-template-columns:1fr} }
 @media (max-width: 760px) { .sidebar{width:72px;padding:20px 10px}.brand-name,.brand-subtitle,.workspace-label,.nav-item:not(.active)::after,.alena-card,.sidebar-footer{display:none}.brand{padding:0 6px 30px}.nav-item{font-size:0;justify-content:center}.nav-item.active{font-size:0}.main-content{margin-left:72px;width:calc(100% - 72px);padding:25px 18px}.topbar{align-items:flex-start;flex-direction:column}.stats-grid{grid-template-columns:1fr}.bars{gap:35px}.score-visual{flex-direction:column;padding:15px 0}.score-copy{text-align:center}.topbar-actions{width:100%}.primary-button,.secondary-button{flex:1;text-align:center} }
+
+
+.chart-grid { display:grid; grid-template-columns:1.25fr .75fr; gap:14px; margin-top:14px; }
+.chart-panel { min-height:340px; }
+.chart-panel.wide { min-width:0; }
+.chart-wrap { width:100%; height:280px; margin-top:14px; }
+.chart-wrap > div { outline:none; }
+.donut-layout { position:relative; display:grid; grid-template-columns:1fr 130px; align-items:center; gap:8px; min-height:240px; }
+.donut-wrap { position:relative; width:100%; }
+.donut-center { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); display:flex; flex-direction:column; align-items:center; pointer-events:none; }
+.donut-center strong { color:#3c3043; font-size:25px; letter-spacing:-.05em; }
+.donut-center span { color:#a39aa7; font-size:9px; margin-top:2px; }
+.legend-list { display:grid; gap:12px; }
+.legend-row { display:grid; grid-template-columns:9px 1fr auto; align-items:center; gap:8px; color:#776d7d; font-size:10px; }
+.legend-row strong { color:#4e4555; font-size:11px; }
+.legend-dot { width:8px; height:8px; border-radius:50%; }
+.recharts-responsive-container { min-width:0; }
+.recharts-text { font-family:inherit; }
+.recharts-default-tooltip { border-radius:10px !important; }
+@media (max-width: 1100px) {
+  .chart-grid { grid-template-columns:1fr; }
+}
+@media (max-width: 760px) {
+  .chart-panel { min-height:320px; }
+  .chart-wrap { height:250px; }
+  .donut-layout { grid-template-columns:1fr; }
+  .legend-list { grid-template-columns:repeat(3,1fr); padding:0 8px 12px; }
+}
