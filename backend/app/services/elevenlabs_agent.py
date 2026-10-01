@@ -1,4 +1,5 @@
 import os
+import queue
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -6,12 +7,12 @@ from pathlib import Path
 from dotenv import load_dotenv
 from elevenlabs import ElevenLabs
 from elevenlabs.conversational_ai.conversation import (
+    AudioInterface,
     Conversation,
     ConversationInitiationData,
 )
-from elevenlabs.conversational_ai.default_audio_interface import (
-    DefaultAudioInterface,
-)
+
+import pyaudio
 
 from app.database.database import SessionLocal
 from app.models.interview import Interview
@@ -159,6 +160,183 @@ def mark_interrupted(interview_id: int):
         db.close()
 
 
+class MeetAudioInterface(AudioInterface):
+    """Route ElevenLabs audio between Google Meet and two virtual devices.
+
+    Input:  Google Meet speaker -> CABLE Output -> ElevenLabs
+    Output: ElevenLabs -> VB-Audio Point Output -> Google Meet microphone
+
+    ElevenLabs remains responsible for speech recognition, conversation logic,
+    and voice generation. PyAudio is used only as the audio transport layer.
+    """
+
+    RATE = 16000
+    CHANNELS = 1
+    FORMAT = pyaudio.paInt16
+    INPUT_FRAMES = 4000
+    OUTPUT_FRAMES = 1000
+
+    def __init__(self):
+        self.input_device_name = os.getenv(
+            "ELEVENLABS_AUDIO_INPUT_DEVICE",
+            "CABLE Output (VB-Audio Virtual Cable)",
+        )
+        self.output_device_name = os.getenv(
+            "ELEVENLABS_AUDIO_OUTPUT_DEVICE",
+            "Output (VB-Audio Point)",
+        )
+
+        self._pa = None
+        self._input_stream = None
+        self._output_stream = None
+        self._input_callback = None
+        self._output_queue = queue.Queue()
+        self._stop_event = threading.Event()
+        self._output_thread = None
+
+    def _find_device(self, name, input_device):
+        target = name.lower().strip()
+        channel_key = "maxInputChannels" if input_device else "maxOutputChannels"
+
+        for index in range(self._pa.get_device_count()):
+            info = self._pa.get_device_info_by_index(index)
+            device_name = str(info.get("name", ""))
+            if target in device_name.lower() and int(info.get(channel_key, 0)) > 0:
+                return index, device_name
+
+        direction = "input" if input_device else "output"
+        available = []
+        for index in range(self._pa.get_device_count()):
+            info = self._pa.get_device_info_by_index(index)
+            if int(info.get(channel_key, 0)) > 0:
+                available.append(f"{index}: {info.get('name', '')}")
+
+        raise RuntimeError(
+            f"ElevenLabs {direction} device not found: {name!r}. "
+            f"Available {direction} devices: {available}"
+        )
+
+    def start(self, input_callback):
+        self._input_callback = input_callback
+        self._stop_event.clear()
+        self._pa = pyaudio.PyAudio()
+
+        input_index, input_name = self._find_device(
+            self.input_device_name,
+            True,
+        )
+        output_index, output_name = self._find_device(
+            self.output_device_name,
+            False,
+        )
+
+        self._input_stream = self._pa.open(
+            format=self.FORMAT,
+            channels=self.CHANNELS,
+            rate=self.RATE,
+            input=True,
+            input_device_index=input_index,
+            frames_per_buffer=self.INPUT_FRAMES,
+        )
+
+        self._output_stream = self._pa.open(
+            format=self.FORMAT,
+            channels=self.CHANNELS,
+            rate=self.RATE,
+            output=True,
+            output_device_index=output_index,
+            frames_per_buffer=self.OUTPUT_FRAMES,
+        )
+
+        print(f"[AUDIO] ElevenLabs input: {input_name}")
+        print(f"[AUDIO] ElevenLabs output: {output_name}")
+        print(f"[AUDIO] Format: 16-bit PCM / mono / {self.RATE} Hz")
+
+        self._output_thread = threading.Thread(
+            target=self._output_worker,
+            name="alena-audio-output",
+            daemon=True,
+        )
+        self._output_thread.start()
+
+        threading.Thread(
+            target=self._input_worker,
+            name="meet-audio-input",
+            daemon=True,
+        ).start()
+
+    def _input_worker(self):
+        while not self._stop_event.is_set():
+            try:
+                audio = self._input_stream.read(
+                    self.INPUT_FRAMES,
+                    exception_on_overflow=False,
+                )
+                if self._input_callback and audio:
+                    self._input_callback(audio)
+            except Exception as error:
+                if not self._stop_event.is_set():
+                    print(f"[AUDIO INPUT ERROR] {error}")
+                break
+
+    def _output_worker(self):
+        while not self._stop_event.is_set():
+            try:
+                audio = self._output_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+
+            if audio is None:
+                break
+
+            try:
+                self._output_stream.write(audio)
+            except Exception as error:
+                if not self._stop_event.is_set():
+                    print(f"[AUDIO OUTPUT ERROR] {error}")
+
+    def output(self, audio: bytes):
+        if not self._stop_event.is_set():
+            self._output_queue.put(audio)
+
+    def interrupt(self):
+        while True:
+            try:
+                self._output_queue.get_nowait()
+            except queue.Empty:
+                break
+
+    def stop(self):
+        self._stop_event.set()
+        self.interrupt()
+        self._output_queue.put(None)
+
+        for stream in (self._input_stream, self._output_stream):
+            if stream is not None:
+                try:
+                    stream.stop_stream()
+                except Exception:
+                    pass
+                try:
+                    stream.close()
+                except Exception:
+                    pass
+
+        if self._output_thread and self._output_thread.is_alive():
+            self._output_thread.join(timeout=1)
+
+        if self._pa is not None:
+            try:
+                self._pa.terminate()
+            except Exception:
+                pass
+
+        self._input_stream = None
+        self._output_stream = None
+        self._output_thread = None
+        self._pa = None
+
+
 # --------------------------------------------------
 # Alena
 # --------------------------------------------------
@@ -281,7 +459,7 @@ def run_alena(interview_id: int):
         requires_auth=bool(
             ELEVENLABS_API_KEY
         ),
-        audio_interface=DefaultAudioInterface(),
+        audio_interface=MeetAudioInterface(),
         callback_agent_response=on_agent_response,
         callback_user_transcript=on_user_transcript,
         config=ConversationInitiationData(
