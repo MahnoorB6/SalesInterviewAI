@@ -14,8 +14,6 @@ from app.auth import create_access_token, hash_password
 
 router = APIRouter(prefix="/api/google", tags=["Google Calendar"])
 
-# Local OAuth session storage. Keeps the PKCE verifier on the backend.
-oauth_sessions = {}
 
 
 @router.get("/status")
@@ -28,9 +26,16 @@ def google_status():
 @router.get("/login")
 def google_login():
     authorization_url, state, code_verifier = get_authorization_url()
-    oauth_sessions[state] = code_verifier
-
     response = RedirectResponse(url=authorization_url)
+    response.set_cookie(
+        key="google_oauth_verifier",
+        value=code_verifier,
+        httponly=True,
+        samesite="lax",
+        secure=False,
+        max_age=600,
+        path="/",
+    )
     response.set_cookie(
         key="google_oauth_state",
         value=state,
@@ -54,7 +59,7 @@ def google_callback(request: Request):
     if not state:
         raise HTTPException(status_code=400, detail="Google OAuth state is missing.")
 
-    code_verifier = oauth_sessions.pop(state, None)
+    code_verifier = request.cookies.get("google_oauth_verifier")
 
     if not code_verifier:
         raise HTTPException(
@@ -129,6 +134,7 @@ def google_callback(request: Request):
             url=f"http://localhost:5173/?google_token={access_token}"
         )
         response.delete_cookie("google_oauth_state", path="/")
+        response.delete_cookie("google_oauth_verifier", path="/")
         return response
 
     except HTTPException:
