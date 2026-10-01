@@ -20,7 +20,10 @@ from app.services.question_generator import (
     generate_interview_questions,
 )
 
-from app.services.google_calendar import create_interview_event
+from app.services.google_calendar import (
+    create_interview_event,
+    send_email,
+)
 
 
 router = APIRouter(
@@ -440,6 +443,59 @@ def create_interview(
                 f"[INTERVIEW] Google Calendar link: "
                 f"{calendar_link}"
             )
+
+        # ----------------------------------------------------
+        # SEND INTERVIEW SCHEDULING EMAIL
+        # ----------------------------------------------------
+
+        scheduled_display = scheduled_at.strftime(
+            "%A, %d %B %Y at %I:%M %p"
+        )
+
+        email_subject = (
+            f"Sales Interview Scheduled - {position}"
+        )
+
+        email_body = (
+            f"Hello {candidate_name},\n\n"
+            "Your sales interview has been scheduled.\n\n"
+            f"Position: {position}\n"
+            f"Date & Time: {scheduled_display} (Pakistan Time)\n"
+            "Duration: 30 minutes\n\n"
+            f"Google Meet: {meet_link}\n\n"
+            "Please join the Google Meet link at the scheduled time.\n\n"
+            "Best regards,\n"
+            "SalesInterviewAI"
+        )
+
+        try:
+            send_email(
+                recipient_email=candidate_email,
+                subject=email_subject,
+                body=email_body,
+            )
+
+            print(
+                f"[INTERVIEW] Scheduling email sent to {candidate_email}"
+            )
+
+        except Exception as email_error:
+            print(
+                "[INTERVIEW] Scheduling email failed: "
+                f"{email_error}"
+            )
+
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    "Interview and Google Meet were created, but the "
+                    "scheduling email could not be sent. "
+                    f"{email_error}"
+                ),
+            )
+
+    except HTTPException:
+        raise
 
     except Exception as error:
 
