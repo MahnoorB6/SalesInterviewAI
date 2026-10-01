@@ -92,6 +92,7 @@ def google_callback(request: Request):
             credentials.id_token,
             GoogleRequest(),
             os.getenv("GOOGLE_CLIENT_ID"),
+            clock_skew_in_seconds=5,
         )
 
         google_email = google_identity.get("email")
