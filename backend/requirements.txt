@@ -49,7 +49,7 @@ psycopg==3.3.5
 psycopg-binary==3.3.5
 pyasn1==0.6.4
 pyasn1_modules==0.4.2
-PyAudio==0.2.14
+PyAudioWPatch==0.2.12.8
 pycparser==3.0
 pydantic==2.13.5
 pydantic-settings==2.15.0
