@@ -944,3 +944,58 @@ def get_interview_questions(
         for question in questions
     ]
 
+
+
+# ============================================================
+# GET INTERVIEW TRANSCRIPT
+# ============================================================
+
+@router.get(
+    "/{interview_id}/transcript",
+    response_class=PlainTextResponse,
+)
+def get_interview_transcript(
+    interview_id: int,
+    db: Session = Depends(get_db),
+):
+    interview = (
+        db.query(Interview)
+        .filter(Interview.id == interview_id)
+        .first()
+    )
+
+    if not interview:
+        raise HTTPException(
+            status_code=404,
+            detail="Interview not found.",
+        )
+
+    if not interview.transcript_path:
+        raise HTTPException(
+            status_code=404,
+            detail="Transcript is not available for this interview yet.",
+        )
+
+    transcript_path = os.path.abspath(
+        interview.transcript_path
+    )
+
+    if not os.path.exists(transcript_path):
+        raise HTTPException(
+            status_code=404,
+            detail="Transcript file not found.",
+        )
+
+    try:
+        with open(
+            transcript_path,
+            "r",
+            encoding="utf-8",
+        ) as transcript_file:
+            return transcript_file.read()
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unable to read transcript: {error}",
+        )
