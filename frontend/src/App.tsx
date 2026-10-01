@@ -425,10 +425,9 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    setShowSplash(true)
     const timer = window.setTimeout(() => setShowSplash(false), 1100)
     return () => window.clearTimeout(timer)
-  }, [page, loggedIn])
+  }, [])
 
   function loginWithGoogle(accessToken?: string) {
     if (accessToken) localStorage.setItem("access_token", accessToken)
