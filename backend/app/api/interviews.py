@@ -1,6 +1,7 @@
 
 import os
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import PlainTextResponse
@@ -31,6 +32,15 @@ router = APIRouter(
 # ============================================================
 # HELPERS
 # ============================================================
+
+PAKISTAN_TIMEZONE = ZoneInfo("Asia/Karachi")
+
+
+def normalize_scheduled_at(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=PAKISTAN_TIMEZONE)
+    return value.astimezone(PAKISTAN_TIMEZONE)
+
 
 def get_candidate_name(candidate):
     """
@@ -273,7 +283,7 @@ def create_interview(
     # 5. CREATE INTERVIEW DATABASE RECORD
     # --------------------------------------------------------
 
-    scheduled_at = interview_data.scheduled_at
+    scheduled_at = normalize_scheduled_at(interview_data.scheduled_at)
 
     interview = Interview(
         candidate_id=interview_data.candidate_id,
