@@ -735,6 +735,46 @@ def update_interview_status(
 
 
 # ============================================================
+# GET INTERVIEW TRANSCRIPT
+# ============================================================
+
+@router.get(
+    "/{interview_id}/transcript",
+    response_class=FileResponse,
+)
+def get_interview_transcript(
+    interview_id: int,
+    db: Session = Depends(get_db),
+):
+    """Serve the actual saved transcript .txt file."""
+    interview = (
+        db.query(Interview)
+        .filter(Interview.id == interview_id)
+        .first()
+    )
+    if not interview:
+        raise HTTPException(status_code=404, detail="Interview not found.")
+
+    transcript_path = getattr(interview, "transcript_path", None)
+    if not transcript_path:
+        raise HTTPException(
+            status_code=404,
+            detail="Transcript is not available for this interview yet.",
+        )
+
+    transcript_path = os.path.abspath(os.path.expanduser(transcript_path))
+    if not os.path.isfile(transcript_path):
+        raise HTTPException(status_code=404, detail="Transcript file not found.")
+
+    return FileResponse(
+        path=transcript_path,
+        media_type="text/plain",
+        filename=os.path.basename(transcript_path),
+        content_disposition_type="inline",
+    )
+
+
+# ============================================================
 # GENERATE / REGENERATE INTERVIEW QUESTIONS
 # ============================================================
 
@@ -917,10 +957,3 @@ def get_interview_questions(
     ]
 
 
-
-
-    except Exception as error:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Unable to read transcript: {error}",
-        )
