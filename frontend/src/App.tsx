@@ -315,7 +315,13 @@ function Evaluations() {
   }, [])
 
   const evaluatedIds = new Set(evaluations.map(x => Number(x.interview_id)))
-  const pending = interviews.filter(x => x.status === "completed" && !evaluatedIds.has(Number(x.id)))
+  const pending = interviews.filter(
+    x =>
+      ["completed", "in_progress"].includes(
+        String(x.status || "").toLowerCase()
+      ) &&
+      !evaluatedIds.has(Number(x.id))
+  )
   const avg = (key: string) => {
     const a = evaluations.map(x => Number(x[key])).filter(Number.isFinite)
     return a.length ? Math.round(a.reduce((s,n) => s+n, 0) / a.length) : 0
