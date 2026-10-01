@@ -24,7 +24,7 @@ const nav = [
   ["Dashboard", "dashboard"],
   ["Candidates", "candidates"],
   ["Interviews", "interviews"],
-  ["Calendar", "schedule"],
+  ["Schedule", "schedule"],
   ["Evaluations", "evaluations"],
 ]
 
@@ -224,7 +224,7 @@ function Dashboard() {
 
   return <>
     <Header eyebrow="RECRUITER ANALYTICS" title="Dashboard" subtitle="A visual overview of your hiring pipeline and candidate performance."
-      action={<><Button secondary onClick={() => navigate("schedule")}>View calendar</Button><Button onClick={() => navigate("candidates")}>+ New candidate</Button></>} />
+      action={<><Button secondary onClick={() => navigate("schedule")}>View schedule</Button><Button onClick={() => navigate("candidates")}>+ New candidate</Button></>} />
     {error && <div className="notice">{error}</div>}
     <section className="stats-grid">
       {[[ "Candidates", vals.c, "Pipeline" ], [ "Scheduled", vals.s, "Upcoming" ], [ "Completed", vals.d, "Completed" ], [ "Average score", vals.score ? Number(vals.score).toFixed(1) : "—", "Performance" ]].map(x =>
@@ -283,7 +283,7 @@ function Schedule() {
     finally { setBusy(false) }
   }
   return <>
-    <Header eyebrow="INTERVIEW CALENDAR" title="Calendar" subtitle="Create an interview and let the workflow handle the Google Meet session."/>
+    <Header eyebrow="INTERVIEW SCHEDULE" title="Schedule" subtitle="Create an interview and let the workflow handle the Google Meet session."/>
     <div className="schedule-layout"><article className="panel form-panel"><PanelTitle title="New interview" sub="Choose a candidate and interview time."/>
       <form onSubmit={submit}><label>Candidate<select value={candidate} onChange={e => setCandidate(e.target.value)} required><option value="">Select candidate</option>{cands.map(x => <option value={x.id} key={x.id}>{x.name || x.full_name || `Candidate #${x.id}`}</option>)}</select></label>
       <label>Date<input type="date" value={date} onChange={e => setDate(e.target.value)} required/></label><label>Time<input type="time" value={time} onChange={e => setTime(e.target.value)} required/></label>
