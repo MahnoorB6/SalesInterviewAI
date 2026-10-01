@@ -24,3 +24,26 @@
 .evaluation-tabs{display:flex;gap:7px;margin-bottom:14px}.evaluation-tabs button{border:1px solid #e7e0e9;background:#fff;color:#786d7e;border-radius:10px;padding:10px 14px;font-size:10px;font-weight:800;cursor:pointer;transition:.18s}.evaluation-tabs button:hover{border-color:#d9c7e1}.evaluation-tabs button.selected{background:#f1e8f7;border-color:#ddcce5;color:#67477a}.evaluation-tabs b{margin-left:5px;padding:2px 6px;border-radius:99px;background:#e7d9ed;font-size:8px}.evaluation-bottom{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}.large-modal{width:min(900px,100%)}.modal-subtitle{margin:3px 0 0;color:#9b919f;font-size:10px}.report-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:18px}.report-grid>div{padding:14px;border:1px solid #eee8f0;border-radius:11px;background:#fcfbfd}.report-grid h3{margin:0 0 7px;font-size:11px;color:#514457}.report-grid p{margin:0;white-space:pre-line;color:#8f8695;font-size:10px;line-height:1.6}.review-actions{display:flex;justify-content:space-between;align-items:center;gap:15px;margin-top:18px;padding-top:16px;border-top:1px solid #eee8f0;color:#74697b;font-size:10px}.review-actions div{display:flex;gap:8px}
 
 @media(max-width:900px){.evaluation-bottom,.report-grid{grid-template-columns:1fr}.review-actions{align-items:flex-start;flex-direction:column}}
+
+
+/* ============================================================
+   GOOGLE-FIRST AUTH + SALESINTERVIEWAI SPLASH
+   ============================================================ */
+.splash-screen{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;overflow:hidden;background:radial-gradient(circle at 20% 20%,rgba(216,164,235,.2),transparent 30%),radial-gradient(circle at 80% 80%,rgba(239,167,184,.16),transparent 30%),#f8f6fb;animation:splashFadeIn .35s ease both}
+.splash-name{font-size:clamp(42px,7vw,92px);font-weight:850;letter-spacing:-.065em;color:#302738;animation:splashNameIn 1.05s cubic-bezier(.2,.8,.2,1) both}
+.splash-name::after{content:"";display:block;height:3px;width:70%;margin:15px auto 0;border-radius:99px;background:linear-gradient(90deg,#9b70b4,#d786a2);animation:splashLineIn 1s ease .18s both}
+@keyframes splashFadeIn{from{opacity:0}to{opacity:1}}
+@keyframes splashNameIn{from{opacity:0;transform:translateY(22px) scale(.97);letter-spacing:-.02em}to{opacity:1;transform:translateY(0) scale(1);letter-spacing:-.065em}}
+@keyframes splashLineIn{from{opacity:0;width:0}to{opacity:1;width:70%}}
+
+.google-gate{min-height:100vh;display:grid;place-items:center;position:relative;overflow:hidden;background:radial-gradient(circle at 15% 15%,rgba(216,164,235,.22),transparent 30%),radial-gradient(circle at 85% 85%,rgba(239,167,184,.18),transparent 30%),#f8f6fb;padding:24px}
+.google-gate-glow{position:absolute;width:380px;height:380px;border-radius:50%;filter:blur(75px);pointer-events:none}
+.gate-glow-one{background:rgba(177,132,193,.14);top:-130px;left:-110px}.gate-glow-two{background:rgba(215,134,162,.12);right:-130px;bottom:-130px}
+.google-gate-card{position:relative;width:min(480px,100%);padding:42px;background:rgba(255,255,255,.95);border:1px solid #e8e0eb;border-radius:24px;box-shadow:0 28px 80px rgba(48,32,57,.12);text-align:center;animation:pageEnter .45s ease both}
+.google-gate-brand{font-size:25px;font-weight:850;letter-spacing:-.045em;color:#302738}
+.google-gate-kicker{margin:8px 0 24px;color:#a17eb0;font-size:9px;font-weight:850;letter-spacing:.14em}
+.google-gate-card h1{margin:0;color:#332b39;font-size:30px;letter-spacing:-.04em}
+.google-gate-subtitle{margin:10px auto 25px;color:#938a99;font-size:12px;line-height:1.7;max-width:390px}
+.google-gate-button{width:100%;height:46px;font-size:12px}
+.google-gate-note{margin-top:17px;padding-top:15px;border-top:1px solid #eee8f0;color:#aaa1af;font-size:9px}
+@media(max-width:600px){.splash-name{font-size:42px}.google-gate-card{padding:30px 22px}}
