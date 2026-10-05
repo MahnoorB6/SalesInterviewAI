@@ -8,7 +8,7 @@ import "./App.css"
 
 type AnyRow = Record<string, any>
 
-const API = "http://127.0.0.1:8000/api"
+const API = `${import.meta.env.VITE_API_URL || "http://127.0.0.1:8000"}/api`
 
 const criteria = [
   ["Communication", "Clarity, listening, articulation and professional dialogue.", "communication"],
@@ -399,7 +399,7 @@ function EvaluationModal({ data, onClose }: { data: AnyRow, onClose: () => void 
     <div className="modal-head"><div><span className="eyebrow">EVALUATION REPORT</span><h2>{data.candidate?.name || `Interview #${data.interview_id}`}</h2><p className="modal-subtitle">Interview #{data.interview_id}</p></div><button onClick={onClose}>×</button></div>
     <div className="score-hero"><strong>{data.overall_score ?? "—"}</strong><span>/ 100</span><Status value={data.result || "pending"}/></div>
     <div className="detail-grid">{criteria.map(([n,,k]) => <div className="detail-score" key={k}><span>{n}</span><b>{data[k] ?? "—"}</b><div className="bar"><i style={{width:`${Math.min(Number(data[k]) || 0, 100)}%`}}/></div></div>)}</div>
-    <div className="report-grid"><div><h3>Strengths</h3><p>{data.strengths || "Not provided."}</p></div><div><h3>Weaknesses</h3><p>{data.weaknesses || "Not provided."}</p></div><div><h3>Recommendation</h3><p>{data.recommendation || "Not provided."}</p></div></div>
+    <div className="report-grid"><div><h3>Strengths</h3><p>{data.strengths || "Not provided."}</p></div><div><h3>Weaknesses</h3><p>{data.weaknesses || "Not provided."}</p></div><div><h3>Recommendation</h3><p>{data.recommendation || "Not provided."}</p></div></div>\n    {Array.isArray(data.question_scores) && data.question_scores.length > 0 && <div className="question-score-panel"><h3>Question-by-question assessment</h3><div className="question-score-list">{data.question_scores.map((q: AnyRow) => <div className="question-score-row" key={q.question_number}><div><b>Q{q.question_number}</b><span>{q.feedback || "No feedback provided."}</span></div><strong>{q.score ?? "—"}/100</strong></div>)}</div></div>}
     <div className="review-actions"><span>Recruiter decision: <b>{data.recruiter_status || "pending"}</b></span><div><button className="secondary-button" disabled={busy} onClick={() => recruiterAction("reject")}>Reject</button><button className="primary-button" disabled={busy} onClick={() => recruiterAction("approve")}>Approve</button></div></div>
     {review && <div className="notice">{review}</div>}
   </div></div>
