@@ -993,3 +993,134 @@ def evaluate_interview(
     )
 
     return evaluation
+
+_legacy_evaluate_interview = evaluate_interview
+
+# Enhanced AI evaluation override
+import json
+import os
+from google import genai
+
+def evaluate_interview(
+    transcript: str,
+    interview_questions: list,
+    resume_analysis=None,
+    position: str = "Sales Representative",
+):
+    if not transcript or not transcript.strip():
+        raise ValueError("Interview transcript is empty.")
+    if not interview_questions:
+        raise ValueError("Interview questions are missing.")
+
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        return _legacy_evaluate_interview(
+            transcript=transcript,
+            interview_questions=interview_questions,
+            resume_analysis=resume_analysis,
+            position=position,
+        )
+
+    prompt = f"""
+You are a senior sales hiring assessor.
+Evaluate this one completed interview for the position: {position}.
+
+Score every competency from 0 to 100 using demonstrated evidence, not keyword counts.
+Reward specific examples, measurable outcomes, customer context, reasoning, actions, and results.
+Penalize vague claims, irrelevant answers, unsupported assertions, and missing evidence.
+Do not infer abilities that the candidate did not demonstrate.
+
+Competencies and weights:
+communication 15%: clarity, listening, structure, relevance, professional dialogue.
+confidence 10%: composure, ownership, credibility, decisive communication.
+sales_knowledge 15%: discovery, pipeline, CRM, value proposition, sales process.
+lead_qualification 15%: need, pain, budget, authority, fit, urgency, buying process.
+objection_handling 15%: acknowledge, diagnose, respond with value/evidence, confirm resolution.
+persuasion 15%: connect needs to value, evidence, adaptation, ethical influence.
+closing_ability 15%: commitment, next steps, handling hesitation, moving toward close.
+
+Overall score must be the weighted average.
+PASS requires overall score >= 60 and every competency >= 40.
+The recruiter retains the final hiring decision.
+
+Resume context:
+{json.dumps(resume_analysis or {}, ensure_ascii=False)}
+
+Questions:
+{json.dumps(interview_questions, ensure_ascii=False)}
+
+Transcript:
+{transcript}
+
+Return only JSON:
+{{
+  "communication": 0,
+  "confidence": 0,
+  "sales_knowledge": 0,
+  "lead_qualification": 0,
+  "objection_handling": 0,
+  "persuasion": 0,
+  "closing_ability": 0,
+  "overall_score": 0,
+  "result": "PASS or FAIL",
+  "recommendation": "short evidence-based recommendation",
+  "strengths": ["strength"],
+  "weaknesses": ["weakness"],
+  "question_scores": [
+    {{"question_number": 1, "score": 0, "feedback": "specific feedback"}}
+  ]
+}}
+"""
+
+    try:
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model=os.getenv("GEMINI_EVALUATION_MODEL", "gemini-2.5-flash"),
+            contents=prompt,
+            config={"response_mime_type": "application/json"},
+        )
+        data = json.loads(response.text)
+    except Exception as error:
+        print(f"[GEMINI EVALUATION] Single attempt failed: {error}")
+        return _legacy_evaluate_interview(
+            transcript=transcript,
+            interview_questions=interview_questions,
+            resume_analysis=resume_analysis,
+            position=position,
+        )
+
+    weights = {
+        "communication": 15,
+        "confidence": 10,
+        "sales_knowledge": 15,
+        "lead_qualification": 15,
+        "objection_handling": 15,
+        "persuasion": 15,
+        "closing_ability": 15,
+    }
+
+    for key in weights:
+        try:
+            data[key] = max(0, min(100, round(float(data.get(key, 0)))))
+        except Exception:
+            data[key] = 0
+
+    data["overall_score"] = round(
+        sum(data[key] * weights[key] for key in weights) / 100
+    )
+    data["result"] = (
+        "PASS"
+        if data["overall_score"] >= 60
+        and min(data[key] for key in weights) >= 40
+        else "FAIL"
+    )
+
+    if not isinstance(data.get("strengths"), list):
+        data["strengths"] = [str(data.get("strengths", ""))]
+    if not isinstance(data.get("weaknesses"), list):
+        data["weaknesses"] = [str(data.get("weaknesses", ""))]
+    if not isinstance(data.get("question_scores"), list):
+        data["question_scores"] = []
+
+    return data
+
