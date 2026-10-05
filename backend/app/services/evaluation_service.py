@@ -994,6 +994,8 @@ def evaluate_interview(
 
     return evaluation
 
+_legacy_evaluate_interview = evaluate_interview
+
 # Enhanced AI evaluation override
 import json
 import os
@@ -1122,5 +1124,3 @@ Return only JSON:
 
     return data
 
-
-_legacy_evaluate_interview = evaluate_interview
