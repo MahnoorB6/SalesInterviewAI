@@ -1,0 +1,15 @@
+{
+  "interview_id": 111,
+  "state": "interrupted",
+  "turns": [
+    {
+      "interview_id": 111,
+      "sequence": 1,
+      "timestamp": "2026-10-06T14:39:11.389218+00:00",
+      "role": "interviewer",
+      "message": "Hello! How are you? I am Alena your sales interviewer. tell me about yourself.",
+      "question_id": 641,
+      "completeness": "complete"
+    }
+  ]
+}

@@ -1,8 +1,6 @@
-import os
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.sessions import SessionMiddleware
+from app.config import settings
 
 from app.api.candidates import router as candidates_router
 from app.api.interviews import router as interviews_router
@@ -22,32 +20,13 @@ app = FastAPI(
 
 
 # ============================================================
-# SESSION MIDDLEWARE
-# ============================================================
-
-app.add_middleware(
-    SessionMiddleware,
-    secret_key=os.getenv(
-        "SESSION_SECRET_KEY",
-        "salesinterviewai-dev-secret-change-this",
-    ),
-    same_site="lax",
-    https_only=False,
-)
-
-
 # ============================================================
 # CORS
 # ============================================================
 
 app.add_middleware(
     CORSMiddleware,
-   allow_origins=[
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://127.0.0.1:5500",
-    "http://localhost:5500",
-],
+   allow_origins=settings.cors_origin_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

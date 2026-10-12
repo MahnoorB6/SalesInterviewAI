@@ -7,6 +7,7 @@ from app.models.candidate import Candidate
 from app.models.interview import Interview
 from app.models.evaluation import Evaluation
 from app.auth import get_current_user
+from app.statuses import InterviewStatus
 
 
 router = APIRouter(
@@ -33,7 +34,7 @@ def get_dashboard_stats(
     scheduled_interviews = (
         db.query(func.count(Interview.id))
         .filter(
-            Interview.status == "scheduled"
+            Interview.status == InterviewStatus.SCHEDULED.value
         )
         .scalar()
         or 0
@@ -42,7 +43,7 @@ def get_dashboard_stats(
     in_progress_interviews = (
         db.query(func.count(Interview.id))
         .filter(
-            Interview.status == "in_progress"
+            Interview.status == InterviewStatus.IN_PROGRESS.value
         )
         .scalar()
         or 0
@@ -51,7 +52,7 @@ def get_dashboard_stats(
     completed_interviews = (
         db.query(func.count(Interview.id))
         .filter(
-            Interview.status == "completed"
+            Interview.status == InterviewStatus.COMPLETED.value
         )
         .scalar()
         or 0
@@ -65,7 +66,7 @@ def get_dashboard_stats(
             Evaluation.interview_id == Interview.id,
         )
         .filter(
-            Interview.status == "completed",
+            Interview.status == InterviewStatus.COMPLETED.value,
             Evaluation.id.is_(None),
         )
         .scalar()
@@ -247,7 +248,7 @@ def get_dashboard_evaluations(
             Evaluation.interview_id == Interview.id,
         )
         .filter(
-            Interview.status == "completed"
+            Interview.status == InterviewStatus.COMPLETED.value
         )
         .order_by(
             Interview.completed_at.desc()
@@ -293,7 +294,7 @@ def get_dashboard_overview(
     completed_interviews = (
         db.query(func.count(Interview.id))
         .filter(
-            Interview.status == "completed"
+            Interview.status == InterviewStatus.COMPLETED.value
         )
         .scalar()
         or 0
@@ -302,7 +303,7 @@ def get_dashboard_overview(
     scheduled_interviews = (
         db.query(func.count(Interview.id))
         .filter(
-            Interview.status == "scheduled"
+            Interview.status == InterviewStatus.SCHEDULED.value
         )
         .scalar()
         or 0
@@ -315,7 +316,7 @@ def get_dashboard_overview(
             Evaluation.interview_id == Interview.id,
         )
         .filter(
-            Interview.status == "completed",
+            Interview.status == InterviewStatus.COMPLETED.value,
             Evaluation.id.is_(None),
         )
         .scalar()

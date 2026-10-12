@@ -5,11 +5,14 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+from app.config import settings
+from app.database.database import get_db
+from app.models.user import User
+from sqlalchemy.orm import Session
 
 
-SECRET_KEY = "salesinterviewai-super-secret-key-change-this"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60
+SECRET_KEY = settings.JWT_SECRET_KEY
+ALGORITHM = settings.JWT_ALGORITHM
 
 
 oauth2_scheme = OAuth2PasswordBearer(
@@ -47,7 +50,7 @@ def create_access_token(
         expire = datetime.now(timezone.utc) + expires_delta
     else:
         expire = datetime.now(timezone.utc) + timedelta(
-            minutes=ACCESS_TOKEN_EXPIRE_MINUTES
+            minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES
         )
 
     to_encode.update({"exp": expire})
@@ -88,6 +91,13 @@ def verify_token(token: str):
 
 def get_current_user(
     token: str = Depends(oauth2_scheme),
-):
-    return verify_token(token)
+    db: Session = Depends(get_db),
+) -> User:
+    email = verify_token(token)
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="Authenticated recruiter no longer exists")
+    if settings.recruiter_email_allowlist and user.email.lower() not in settings.recruiter_email_allowlist:
+        raise HTTPException(status_code=403, detail="Recruiter account is not authorized")
+    return user
 

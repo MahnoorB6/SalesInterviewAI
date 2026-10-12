@@ -1,12 +1,20 @@
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 class CandidateCreate(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=150)
     email: EmailStr
-    phone: str | None = None
+    phone: str | None = Field(default=None, max_length=50)
+
+    @field_validator("name")
+    @classmethod
+    def clean_name(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Name cannot be blank")
+        return value
 
 
 class CandidateResponse(BaseModel):
@@ -16,8 +24,7 @@ class CandidateResponse(BaseModel):
     phone: str | None
 
     # Resume
-    resume_path: str | None = None
-    resume_text: str | None = None
+    resume_uploaded: bool = False
     resume_analysis: dict | None = None
 
     # Latest role
@@ -27,7 +34,7 @@ class CandidateResponse(BaseModel):
     latest_role_end_date: str | None = None
     latest_role_description: str | None = None
 
-    created_at: datetime
+    created_at: datetime | None = None
 
     class Config:
         from_attributes = True

@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Integer, String, DateTime, Text
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from app.database.database import Base
@@ -31,3 +32,14 @@ class Candidate(Base):
         DateTime(timezone=True),
         server_default=func.now(),
     )
+
+    interviews = relationship(
+        "Interview",
+        back_populates="candidate",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    @property
+    def resume_uploaded(self) -> bool:
+        return bool(self.resume_path)

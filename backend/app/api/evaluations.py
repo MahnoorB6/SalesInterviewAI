@@ -1,14 +1,16 @@
 import json
 import os
+import logging
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Path
 from sqlalchemy.orm import Session
 
 from app.database.database import get_db
 
-from app.models.evaluation import Evaluation
+from app.models.evaluation import Evaluation, EvaluationRun
+from app.models.human_evaluation_label import HumanEvaluationLabel
 from app.models.interview import Interview
 from app.models.interview_question import InterviewQuestion
 from app.models.candidate import Candidate
@@ -17,15 +19,23 @@ from app.schemas.evaluation import (
     EvaluationCreate,
     EvaluationResponse,
 )
+from app.schemas.human_evaluation_label import HumanEvaluationLabelCreate, HumanEvaluationLabelResponse
 
 from app.services.evaluation_service import evaluate_interview
 from app.services.google_calendar import send_email
+from app.statuses import InterviewStatus
+from app.auth import get_current_user
+from app.transcripts import transcript_path_for
+from app.models.user import User
+from app.services.evaluation_rubric import COMPETENCY_BY_KEY
 
 
 router = APIRouter(
     prefix="/api/evaluations",
     tags=["Evaluations"],
+    dependencies=[Depends(get_current_user)],
 )
+logger = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -40,6 +50,13 @@ def create_evaluation(
     evaluation_data: EvaluationCreate,
     db: Session = Depends(get_db),
 ):
+    interview = db.query(Interview).filter(Interview.id == evaluation_data.interview_id).first()
+    if not interview:
+        raise HTTPException(status_code=404, detail="Interview not found")
+    if interview.status not in {InterviewStatus.COMPLETED.value, InterviewStatus.INTERRUPTED.value}:
+        raise HTTPException(status_code=409, detail="Only completed or interrupted interviews can be evaluated")
+    if db.query(Evaluation).filter(Evaluation.interview_id == interview.id).first():
+        raise HTTPException(status_code=409, detail="An evaluation already exists for this interview")
     evaluation = Evaluation(
         interview_id=evaluation_data.interview_id,
 
@@ -53,7 +70,7 @@ def create_evaluation(
 
         overall_score=evaluation_data.overall_score,
 
-        result=evaluation_data.result,
+        result=None,
 
         recommendation=evaluation_data.recommendation,
 
@@ -61,6 +78,10 @@ def create_evaluation(
         weaknesses=evaluation_data.weaknesses,
 
         question_scores=evaluation_data.question_scores,
+        evaluation_status="manual_unverified",
+        rubric_version="unknown",
+        evaluator_version="manual_input",
+        evaluation_method="manual_legacy",
     )
 
     db.add(evaluation)
@@ -71,7 +92,7 @@ def create_evaluation(
 
 
 # ============================================================
-# GENERATE RULE-BASED EVALUATION
+# GENERATE EVIDENCE-BASED EVALUATION
 # ============================================================
 
 @router.post(
@@ -79,7 +100,7 @@ def create_evaluation(
     response_model=EvaluationResponse,
 )
 def generate_evaluation(
-    interview_id: int,
+    interview_id: int = Path(gt=0),
     db: Session = Depends(get_db),
 ):
     # ========================================================
@@ -100,22 +121,15 @@ def generate_evaluation(
             detail="Interview not found",
         )
 
-    # ========================================================
-    # INTERVIEW CAN BE COMPLETED OR IN PROGRESS
-    # ========================================================
-
     interview_status = str(
         interview.status or ""
     ).strip().lower()
 
-    if interview_status not in {
-        "completed",
-        "in_progress",
-    }:
+    if interview_status not in {InterviewStatus.COMPLETED.value, InterviewStatus.INTERRUPTED.value}:
         raise HTTPException(
             status_code=400,
             detail=(
-                "Only completed or in-progress interviews "
+                "Only completed or interrupted interviews "
                 "can be evaluated."
             ),
         )
@@ -124,7 +138,8 @@ def generate_evaluation(
     # CHECK TRANSCRIPT
     # ========================================================
 
-    if not interview.transcript_path:
+    transcript_path = transcript_path_for(interview)
+    if not transcript_path:
         raise HTTPException(
             status_code=400,
             detail=(
@@ -132,9 +147,7 @@ def generate_evaluation(
             ),
         )
 
-    if not os.path.exists(
-        interview.transcript_path
-    ):
+    if not transcript_path.is_file():
         raise HTTPException(
             status_code=404,
             detail="Transcript file not found.",
@@ -145,20 +158,11 @@ def generate_evaluation(
     # ========================================================
 
     try:
-        with open(
-            interview.transcript_path,
-            "r",
-            encoding="utf-8",
-        ) as transcript_file:
-
+        with open(transcript_path, "r", encoding="utf-8") as transcript_file:
             transcript = transcript_file.read()
-
-    except Exception as error:
-
-        raise HTTPException(
-            status_code=500,
-            detail=f"Unable to read transcript: {error}",
-        )
+    except OSError:
+        logger.exception("Could not read transcript for interview %s", interview_id)
+        raise HTTPException(status_code=500, detail="Transcript could not be read")
 
     if not transcript.strip():
         raise HTTPException(
@@ -200,273 +204,136 @@ def generate_evaluation(
         for question in questions
     ]
 
-    # ========================================================
-    # LOAD CANDIDATE
-    # ========================================================
+    evaluation = db.query(Evaluation).filter(Evaluation.interview_id == interview_id).first()
+    if evaluation and evaluation.recruiter_status not in (None, "pending"):
+        raise HTTPException(status_code=409, detail="A recruiter decision already exists; evaluated results are locked")
 
-    candidate = (
-        db.query(Candidate)
-        .filter(
-            Candidate.id == interview.candidate_id
-        )
-        .first()
-    )
-
-    if not candidate:
-        raise HTTPException(
-            status_code=404,
-            detail="Candidate not found.",
-        )
-
-    # ========================================================
-    # OPTIONAL RESUME ANALYSIS
-    # ========================================================
-
-    resume_analysis = None
-
-    if candidate.resume_analysis:
-
-        resume_analysis = candidate.resume_analysis
-
-        if isinstance(
-            resume_analysis,
-            str,
-        ):
-
-            try:
-
-                resume_analysis = json.loads(
-                    resume_analysis
-                )
-
-            except json.JSONDecodeError:
-
-                resume_analysis = None
-
-    # ========================================================
-    # GENERATE RULE-BASED EVALUATION
-    # ========================================================
-
+    question_list = [
+        {
+            "id": question.id,
+            "question_number": question.question_number,
+            "question": question.question,
+            "category": question.category,
+        }
+        for question in questions
+    ]
     try:
-
         result = evaluate_interview(
-            position=interview.position,
-            resume_analysis=resume_analysis,
-            interview_questions=question_list,
             transcript=transcript,
+            interview_questions=question_list,
+            interview_status=interview_status,
         )
+    except Exception:
+        logger.exception("Behavioral evaluation failed for interview %s", interview_id)
+        raise HTTPException(status_code=500, detail="Evaluation could not be generated")
 
-    except Exception as error:
+    strengths_text = "\n".join(result["strengths"])
+    weaknesses_text = "\n".join(result["weaknesses"])
+    question_scores_json = json.dumps(result["question_evaluations"], ensure_ascii=False)
 
-        raise HTTPException(
-            status_code=500,
-            detail=f"Evaluation failed: {error}",
-        )
-
-    # ========================================================
-    # FIND EXISTING EVALUATION
-    # ========================================================
-
-    evaluation = (
-        db.query(Evaluation)
-        .filter(
-            Evaluation.interview_id
-            == interview_id
-        )
-        .first()
-    )
-
-    # ========================================================
-    # QUESTION SCORES
-    # ========================================================
-
-    question_scores = result.get(
-        "question_scores",
-        [],
-    )
-
-    if len(question_scores) != len(
-        question_list
+    if evaluation and evaluation.structured_result is None and any(
+        value is not None for value in (evaluation.overall_score, evaluation.communication, evaluation.question_scores)
     ):
+        legacy_snapshot = {
+            "legacy_result": {
+                "overall_score": evaluation.overall_score,
+                "competencies_out_of_100": {
+                    key: getattr(evaluation, key)
+                    for key in ("communication", "confidence", "sales_knowledge", "lead_qualification", "objection_handling", "persuasion", "closing_ability")
+                },
+                "question_scores": evaluation.question_scores,
+                "result": evaluation.result,
+            },
+            "notice": "Legacy evaluation imported without recoverable rubric or evidence provenance.",
+        }
+        db.add(EvaluationRun(
+            evaluation=evaluation,
+            structured_result=legacy_snapshot,
+            rubric_version=evaluation.rubric_version or "legacy_unknown",
+            evaluator_version=evaluation.evaluator_version or "legacy_unknown",
+            evaluation_method=evaluation.evaluation_method or "legacy_unknown",
+        ))
 
-        raise HTTPException(
-            status_code=500,
-            detail=(
-                "Evaluation returned an incorrect "
-                "number of question scores."
-            ),
-        )
-
-    question_scores_json = json.dumps(
-        question_scores
-    )
-
-    # ========================================================
-    # STRENGTHS
-    # ========================================================
-
-    strengths = result.get(
-        "strengths",
-        [],
-    )
-
-    if isinstance(
-        strengths,
-        list,
-    ):
-
-        strengths_text = "\n".join(
-            f"- {item}"
-            for item in strengths
-        )
-
-    else:
-
-        strengths_text = str(
-            strengths
-        )
-
-    # ========================================================
-    # WEAKNESSES
-    # ========================================================
-
-    weaknesses = result.get(
-        "weaknesses",
-        [],
-    )
-
-    if isinstance(
-        weaknesses,
-        list,
-    ):
-
-        weaknesses_text = "\n".join(
-            f"- {item}"
-            for item in weaknesses
-        )
-
-    else:
-
-        weaknesses_text = str(
-            weaknesses
-        )
-
-    # ========================================================
-    # CREATE OR UPDATE EVALUATION
-    # ========================================================
-
-    if evaluation:
-
-        evaluation.communication = result.get(
-            "communication"
-        )
-
-        evaluation.confidence = result.get(
-            "confidence"
-        )
-
-        evaluation.sales_knowledge = result.get(
-            "sales_knowledge"
-        )
-
-        evaluation.lead_qualification = result.get(
-            "lead_qualification"
-        )
-
-        evaluation.objection_handling = result.get(
-            "objection_handling"
-        )
-
-        evaluation.persuasion = result.get(
-            "persuasion"
-        )
-
-        evaluation.closing_ability = result.get(
-            "closing_ability"
-        )
-
-        evaluation.overall_score = result.get(
-            "overall_score"
-        )
-
-        evaluation.result = result.get(
-            "result"
-        )
-
-        evaluation.recommendation = result.get(
-            "recommendation"
-        )
-
-        evaluation.strengths = strengths_text
-
-        evaluation.weaknesses = weaknesses_text
-
-        evaluation.question_scores = (
-            question_scores_json
-        )
-
-    else:
-
-        evaluation = Evaluation(
-            interview_id=interview_id,
-
-            communication=result.get(
-                "communication"
-            ),
-
-            confidence=result.get(
-                "confidence"
-            ),
-
-            sales_knowledge=result.get(
-                "sales_knowledge"
-            ),
-
-            lead_qualification=result.get(
-                "lead_qualification"
-            ),
-
-            objection_handling=result.get(
-                "objection_handling"
-            ),
-
-            persuasion=result.get(
-                "persuasion"
-            ),
-
-            closing_ability=result.get(
-                "closing_ability"
-            ),
-
-            overall_score=result.get(
-                "overall_score"
-            ),
-
-            result=result.get(
-                "result"
-            ),
-
-            recommendation=result.get(
-                "recommendation"
-            ),
-
-            strengths=strengths_text,
-
-            weaknesses=weaknesses_text,
-
-            question_scores=question_scores_json,
-        )
-
+    if evaluation is None:
+        evaluation = Evaluation(interview_id=interview_id, recruiter_status="pending")
         db.add(evaluation)
 
-    # ========================================================
-    # SAVE
-    # ========================================================
-
+    profiles = result["competencies"]
+    for key in ("communication", "confidence", "sales_knowledge", "lead_qualification", "objection_handling", "persuasion", "closing_ability"):
+        setattr(evaluation, key, profiles[key]["score_out_of_100"])
+    evaluation.overall_score = result["overall_score"]
+    evaluation.result = None  # Automated rubric output is not an approve/reject decision.
+    evaluation.recommendation = result["recommendation"]
+    evaluation.strengths = strengths_text
+    evaluation.weaknesses = weaknesses_text
+    evaluation.question_scores = question_scores_json
+    evaluation.structured_result = result
+    evaluation.evaluation_status = result["evaluation_status"]
+    evaluation.rubric_version = result["rubric_version"]
+    evaluation.evaluator_version = result["evaluator_version"]
+    evaluation.evaluation_method = result["evaluation_method"]
+    db.flush()
+    db.add(EvaluationRun(
+        evaluation=evaluation,
+        structured_result=result,
+        rubric_version=result["rubric_version"],
+        evaluator_version=result["evaluator_version"],
+        evaluation_method=result["evaluation_method"],
+    ))
     db.commit()
     db.refresh(evaluation)
-
     return evaluation
+
+
+@router.post("/labels", response_model=HumanEvaluationLabelResponse, status_code=201)
+def create_human_evaluation_label(
+    payload: HumanEvaluationLabelCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    competency = COMPETENCY_BY_KEY.get(payload.competency)
+    if not competency or payload.criterion not in {criterion.key for criterion in competency.criteria}:
+        raise HTTPException(status_code=422, detail="Criterion does not belong to the requested competency")
+    question = db.query(InterviewQuestion).filter(InterviewQuestion.id == payload.interview_question_id).first()
+    if not question:
+        raise HTTPException(status_code=404, detail="Interview question not found")
+    evaluation = db.query(Evaluation).filter(Evaluation.interview_id == question.interview_id).first()
+    if not evaluation or not evaluation.structured_result:
+        raise HTTPException(status_code=409, detail="Generate a structured evaluation before adding a human label")
+    question_result = next(
+        (item for item in evaluation.structured_result.get("question_evaluations", []) if item.get("question_id") == question.id),
+        None,
+    )
+    if not question_result or not question_result.get("candidate_answer"):
+        raise HTTPException(status_code=409, detail="No candidate answer is aligned to this interview question")
+    if payload.evidence_span not in question_result["candidate_answer"]:
+        raise HTTPException(status_code=422, detail="Evidence span must be copied exactly from the aligned candidate answer")
+    duplicate = db.query(HumanEvaluationLabel).filter(
+        HumanEvaluationLabel.interview_question_id == question.id,
+        HumanEvaluationLabel.criterion == payload.criterion,
+        HumanEvaluationLabel.rater_id == current_user.id,
+        HumanEvaluationLabel.rubric_version == evaluation.rubric_version,
+    ).first()
+    if duplicate:
+        raise HTTPException(status_code=409, detail="You have already labeled this criterion for this question and rubric version")
+    label = HumanEvaluationLabel(
+        interview_id=question.interview_id,
+        interview_question_id=question.id,
+        question=question.question,
+        candidate_answer=question_result["candidate_answer"],
+        competency=payload.competency,
+        criterion=payload.criterion,
+        rating=payload.rating,
+        evidence_span=payload.evidence_span,
+        rater_id=current_user.id,
+        rubric_version=evaluation.rubric_version or "unknown",
+        transcript_quality=payload.transcript_quality,
+        adjudication_status="pending",
+    )
+    db.add(label)
+    db.commit()
+    db.refresh(label)
+    return label
 
 
 # ============================================================
@@ -499,7 +366,7 @@ def get_all_evaluations(
     "/interview/{interview_id}/details",
 )
 def get_recruiter_evaluation_details(
-    interview_id: int,
+    interview_id: int = Path(gt=0),
     db: Session = Depends(get_db),
 ):
     interview = (
@@ -565,8 +432,8 @@ def get_recruiter_evaluation_details(
             "position": interview.position,
             "scheduled_at": interview.scheduled_at,
             "status": interview.status,
-            "recording_path": interview.recording_path,
-            "transcript_path": interview.transcript_path,
+            "recording_available": bool(interview.recording_path),
+            "transcript_available": bool(interview.transcript_path),
             "completed_at": interview.completed_at,
         },
 
@@ -653,6 +520,23 @@ def get_recruiter_evaluation_details(
             "question_scores": (
                 question_scores
             ),
+            "structured_result": evaluation.structured_result,
+            "evaluation_status": evaluation.evaluation_status,
+            "rubric_version": evaluation.rubric_version,
+            "evaluator_version": evaluation.evaluator_version,
+            "evaluation_method": evaluation.evaluation_method,
+            "runs": [
+                {
+                    "id": run.id,
+                    "evaluation_id": run.evaluation_id,
+                    "structured_result": run.structured_result,
+                    "rubric_version": run.rubric_version,
+                    "evaluator_version": run.evaluator_version,
+                    "evaluation_method": run.evaluation_method,
+                    "created_at": run.created_at,
+                }
+                for run in evaluation.runs
+            ],
         },
     }
 
@@ -665,14 +549,14 @@ def get_recruiter_evaluation_details(
     "/{evaluation_id}/approve",
 )
 def approve_evaluation(
-    evaluation_id: int,
+    evaluation_id: int = Path(gt=0),
     db: Session = Depends(get_db),
 ):
     evaluation = (
         db.query(Evaluation)
-        .filter(
-            Evaluation.id == evaluation_id
-        )
+        .filter(Evaluation.id == evaluation_id)
+        .with_for_update()
+        .populate_existing()
         .first()
     )
 
@@ -681,6 +565,18 @@ def approve_evaluation(
             status_code=404,
             detail="Evaluation not found",
         )
+
+    if evaluation.structured_result is not None:
+        raise HTTPException(status_code=409, detail="Structured evaluations are immutable; regenerate through the evaluation engine")
+
+    if evaluation.recruiter_status not in (None, "pending"):
+        raise HTTPException(status_code=409, detail=f"Evaluation already has the {evaluation.recruiter_status} decision")
+
+    # Persist the decision before sending mail so retries cannot send duplicates.
+    evaluation.recruiter_status = "approved"
+    evaluation.reviewed_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(evaluation)
 
     interview = (
         db.query(Interview)
@@ -746,51 +642,21 @@ SalesInterviewAI
 
     try:
 
-        print(
-            f"[EMAIL] Sending approval email "
-            f"to {candidate_email}..."
-        )
-
         email_result = send_email(
             recipient_email=candidate_email,
             subject=email_subject,
             body=email_body,
         )
 
-        print(
-            f"[EMAIL] Approval email sent successfully "
-            f"to {candidate_email}. "
-            f"Message ID: "
-            f"{email_result.get('id') if isinstance(email_result, dict) else 'unknown'}"
-        )
-
     except Exception as error:
 
-        print(
-            f"[EMAIL ERROR] Failed to send approval email "
-            f"to {candidate_email}: {error}"
-        )
-
-        raise HTTPException(
-            status_code=500,
-            detail=(
-                f"Approval email could not be sent to "
-                f"{candidate_email}: {error}"
-            ),
-        )
+        logger.warning("Approval notification failed for evaluation %s (%s)", evaluation_id, type(error).__name__)
+        raise HTTPException(status_code=502, detail="Recruiter decision was recorded, but the candidate email could not be sent. Contact the candidate manually.")
 
     # --------------------------------------------------------
     # UPDATE RECRUITER STATUS
     # --------------------------------------------------------
 
-    evaluation.recruiter_status = "approved"
-
-    evaluation.reviewed_at = datetime.now(
-        timezone.utc
-    )
-
-    db.commit()
-    db.refresh(evaluation)
 
     # --------------------------------------------------------
     # RESPONSE
@@ -820,14 +686,14 @@ SalesInterviewAI
     "/{evaluation_id}/reject",
 )
 def reject_evaluation(
-    evaluation_id: int,
+    evaluation_id: int = Path(gt=0),
     db: Session = Depends(get_db),
 ):
     evaluation = (
         db.query(Evaluation)
-        .filter(
-            Evaluation.id == evaluation_id
-        )
+        .filter(Evaluation.id == evaluation_id)
+        .with_for_update()
+        .populate_existing()
         .first()
     )
 
@@ -836,6 +702,15 @@ def reject_evaluation(
             status_code=404,
             detail="Evaluation not found",
         )
+
+    if evaluation.recruiter_status not in (None, "pending"):
+        raise HTTPException(status_code=409, detail=f"Evaluation already has the {evaluation.recruiter_status} decision")
+
+    # Persist the decision before sending mail so retries cannot send duplicates.
+    evaluation.recruiter_status = "rejected"
+    evaluation.reviewed_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(evaluation)
 
     interview = (
         db.query(Interview)
@@ -901,51 +776,21 @@ SalesInterviewAI
 
     try:
 
-        print(
-            f"[EMAIL] Sending rejection email "
-            f"to {candidate_email}..."
-        )
-
         email_result = send_email(
             recipient_email=candidate_email,
             subject=email_subject,
             body=email_body,
         )
 
-        print(
-            f"[EMAIL] Rejection email sent successfully "
-            f"to {candidate_email}. "
-            f"Message ID: "
-            f"{email_result.get('id') if isinstance(email_result, dict) else 'unknown'}"
-        )
-
     except Exception as error:
 
-        print(
-            f"[EMAIL ERROR] Failed to send rejection email "
-            f"to {candidate_email}: {error}"
-        )
-
-        raise HTTPException(
-            status_code=500,
-            detail=(
-                f"Rejection email could not be sent to "
-                f"{candidate_email}: {error}"
-            ),
-        )
+        logger.warning("Rejection notification failed for evaluation %s (%s)", evaluation_id, type(error).__name__)
+        raise HTTPException(status_code=502, detail="Recruiter decision was recorded, but the candidate email could not be sent. Contact the candidate manually.")
 
     # --------------------------------------------------------
     # UPDATE RECRUITER STATUS
     # --------------------------------------------------------
 
-    evaluation.recruiter_status = "rejected"
-
-    evaluation.reviewed_at = datetime.now(
-        timezone.utc
-    )
-
-    db.commit()
-    db.refresh(evaluation)
 
     # --------------------------------------------------------
     # RESPONSE
@@ -976,7 +821,7 @@ SalesInterviewAI
     response_model=EvaluationResponse,
 )
 def get_evaluation(
-    evaluation_id: int,
+    evaluation_id: int = Path(gt=0),
     db: Session = Depends(get_db),
 ):
     evaluation = (
@@ -1005,8 +850,8 @@ def get_evaluation(
     response_model=EvaluationResponse,
 )
 def update_evaluation(
-    evaluation_id: int,
     evaluation_data: EvaluationCreate,
+    evaluation_id: int = Path(gt=0),
     db: Session = Depends(get_db),
 ):
     evaluation = (
@@ -1023,9 +868,13 @@ def update_evaluation(
             detail="Evaluation not found",
         )
 
-    evaluation.interview_id = (
-        evaluation_data.interview_id
-    )
+    if evaluation_data.interview_id != evaluation.interview_id:
+        raise HTTPException(status_code=409, detail="An evaluation cannot be moved to a different interview")
+    interview = db.query(Interview).filter(Interview.id == evaluation.interview_id).first()
+    if not interview:
+        raise HTTPException(status_code=404, detail="Interview not found")
+    if interview.status not in {InterviewStatus.COMPLETED.value, InterviewStatus.INTERRUPTED.value}:
+        raise HTTPException(status_code=409, detail="Only completed or interrupted interviews can be evaluated")
 
     evaluation.communication = (
         evaluation_data.communication
@@ -1078,6 +927,11 @@ def update_evaluation(
     evaluation.question_scores = (
         evaluation_data.question_scores
     )
+    evaluation.evaluation_status = "manual_unverified"
+    evaluation.rubric_version = "unknown"
+    evaluation.evaluator_version = "manual_input"
+    evaluation.evaluation_method = "manual_legacy"
+    evaluation.result = None
 
     db.commit()
     db.refresh(evaluation)
@@ -1093,7 +947,7 @@ def update_evaluation(
     "/{evaluation_id}",
 )
 def delete_evaluation(
-    evaluation_id: int,
+    evaluation_id: int = Path(gt=0),
     db: Session = Depends(get_db),
 ):
     evaluation = (

@@ -1,0 +1,15 @@
+[MEET JOIN FAILURE DIAGNOSTICS]
+Current URL: https://meet.google.com/xvg-ngre-xhy
+Page title: Meet – xvg-ngre-xhy
+Screenshot saved: C:\Users\user\OneDrive\Desktop\SalesInterviewAI\backend\data\diagnostics\meet_join_failure.png
+[VISIBLE BUTTONS AND ACCESSIBLE NAMES]
+- button "Rejoin"
+- button "Return to home screen"
+- button "Rate the meeting 1 star out of 5."
+- button "Rate the meeting 2 stars out of 5."
+- button "Rate the meeting 3 stars out of 5."
+- button "Rate the meeting 4 stars out of 5."
+- button "Rate the meeting 5 stars out of 5."
+- button "Feedback"
+[PAGE STATE CLUES]
+No sign-in, waiting-room, or permission text detected; inspect the screenshot and visible button inventory for a changed pre-join UI.

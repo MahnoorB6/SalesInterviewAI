@@ -1,19 +1,22 @@
 import os
 import uuid
+import logging
+import tempfile
+import zipfile
 
 from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
+    Path,
     UploadFile,
     File,
 )
+from app.auth import get_current_user
 from sqlalchemy.orm import Session
 
 from app.database.database import get_db
 from app.models.candidate import Candidate
-from app.models.interview import Interview
-from app.models.evaluation import Evaluation
 from app.schemas.candidate import (
     CandidateCreate,
     CandidateResponse,
@@ -32,6 +35,7 @@ from app.services.resume_analyzer import (
 router = APIRouter(
     prefix="/api/candidates",
     tags=["Candidates"],
+    dependencies=[Depends(get_current_user)],
 )
 
 
@@ -52,9 +56,10 @@ os.makedirs(
 
 ALLOWED_RESUME_EXTENSIONS = {
     ".pdf",
-    ".doc",
     ".docx",
 }
+MAX_RESUME_BYTES = 10 * 1024 * 1024
+logger = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -121,7 +126,7 @@ def get_candidates(
     response_model=CandidateResponse,
 )
 def get_candidate(
-    candidate_id: int,
+    candidate_id: int = Path(gt=0),
     db: Session = Depends(get_db),
 ):
     candidate = (
@@ -148,8 +153,8 @@ def get_candidate(
     response_model=CandidateResponse,
 )
 def update_candidate(
-    candidate_id: int,
     candidate_data: CandidateCreate,
+    candidate_id: int = Path(gt=0),
     db: Session = Depends(get_db),
 ):
     candidate = (
@@ -193,195 +198,85 @@ def update_candidate(
 # UPLOAD / REPLACE RESUME
 # ============================================================
 
-@router.post(
-    "/{candidate_id}/resume",
-    response_model=CandidateResponse,
-)
-async def upload_resume(
-    candidate_id: int,
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-):
-    candidate = (
-        db.query(Candidate)
-        .filter(Candidate.id == candidate_id)
-        .first()
-    )
-
+@router.post("/{candidate_id}/resume", response_model=CandidateResponse)
+async def upload_resume(candidate_id: int = Path(gt=0), file: UploadFile = File(...), db: Session = Depends(get_db)):
+    candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
     if not candidate:
-        raise HTTPException(
-            status_code=404,
-            detail="Candidate not found",
-        )
-
+        raise HTTPException(status_code=404, detail="Candidate not found")
     if not file.filename:
-        raise HTTPException(
-            status_code=400,
-            detail="No resume file provided",
-        )
-
-    extension = os.path.splitext(
-        file.filename
-    )[1].lower()
-
+        raise HTTPException(status_code=400, detail="No resume file provided")
+    extension = os.path.splitext(file.filename)[1].lower()
     if extension not in ALLOWED_RESUME_EXTENSIONS:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Invalid resume format. "
-                "Allowed formats: PDF, DOC, DOCX."
-            ),
-        )
+        raise HTTPException(status_code=400, detail="Invalid resume format. Allowed formats: PDF and DOCX.")
 
-    # --------------------------------------------------------
-    # DELETE OLD RESUME
-    # --------------------------------------------------------
+    os.makedirs(RESUME_DIR, exist_ok=True)
+    fd, temp_path = tempfile.mkstemp(prefix=f"candidate_{candidate_id}_", suffix=extension, dir=RESUME_DIR)
+    os.close(fd)
+    final_path = None
+    try:
+        size, signature = 0, b""
+        with open(temp_path, "wb") as target:
+            while chunk := await file.read(64 * 1024):
+                size += len(chunk)
+                if size > MAX_RESUME_BYTES:
+                    raise HTTPException(status_code=413, detail="Resume exceeds the 10 MB upload limit.")
+                signature += chunk[: max(0, 8 - len(signature))]
+                target.write(chunk)
+        if not size:
+            raise HTTPException(status_code=400, detail="Resume file is empty.")
+        if extension == ".pdf" and not signature.startswith(b"%PDF-"):
+            raise HTTPException(status_code=400, detail="File content does not match a PDF resume.")
+        if extension == ".docx":
+            if not signature.startswith(b"PK") or not zipfile.is_zipfile(temp_path):
+                raise HTTPException(status_code=400, detail="File content does not match a DOCX resume.")
+            with zipfile.ZipFile(temp_path) as archive:
+                names = set(archive.namelist())
+                if "[Content_Types].xml" not in names or "word/document.xml" not in names:
+                    raise HTTPException(status_code=400, detail="DOCX document structure is invalid.")
+        try:
+            resume_text = extract_resume_text(temp_path)
+        except Exception as error:
+            logger.info("Resume parsing rejected candidate %s (%s)", candidate_id, type(error).__name__)
+            raise HTTPException(status_code=400, detail="Resume could not be parsed. Check that the PDF or DOCX is valid.") from error
+        try:
+            analysis = analyze_resume(resume_text)
+        except Exception as error:
+            logger.warning("Resume analysis failed for candidate %s (%s)", candidate_id, type(error).__name__)
+            raise HTTPException(status_code=503, detail="Resume analysis is temporarily unavailable. The existing resume was preserved.") from error
+        try:
+            role_data = detect_latest_role(resume_text)
+        except Exception:
+            role_data = {"latest_role_description": None}
 
-    if candidate.resume_path:
-        old_path = candidate.resume_path
-
-        if os.path.exists(old_path):
+        final_path = os.path.join(RESUME_DIR, f"candidate_{candidate_id}_{uuid.uuid4().hex}{extension}")
+        os.replace(temp_path, final_path)
+        previous_path = candidate.resume_path
+        candidate.resume_path = final_path
+        candidate.resume_text = resume_text
+        candidate.resume_analysis = analysis.model_dump()
+        candidate.latest_role = analysis.latest_role
+        candidate.latest_company = analysis.latest_company
+        candidate.latest_role_start_date = analysis.start_date
+        candidate.latest_role_end_date = analysis.end_date
+        candidate.latest_role_description = "\n".join(analysis.responsibilities) if analysis.responsibilities else role_data.get("latest_role_description")
+        try:
+            db.commit()
+            db.refresh(candidate)
+        except Exception as error:
+            db.rollback()
+            logger.warning("Could not save resume data for candidate %s (%s)", candidate_id, type(error).__name__)
+            raise HTTPException(status_code=500, detail="Could not save resume information.") from error
+        if previous_path and os.path.abspath(previous_path) != os.path.abspath(final_path) and os.path.isfile(previous_path):
             try:
-                os.remove(old_path)
+                os.remove(previous_path)
             except OSError:
-                pass
-
-    # --------------------------------------------------------
-    # CREATE UNIQUE FILENAME
-    # --------------------------------------------------------
-
-    filename = (
-        f"candidate_{candidate_id}_"
-        f"{uuid.uuid4().hex}"
-        f"{extension}"
-    )
-
-    file_path = os.path.join(
-        RESUME_DIR,
-        filename,
-    )
-
-    # --------------------------------------------------------
-    # SAVE FILE
-    # --------------------------------------------------------
-
-    contents = await file.read()
-
-    with open(file_path, "wb") as resume_file:
-        resume_file.write(contents)
-
-    candidate.resume_path = file_path
-
-    # --------------------------------------------------------
-    # EXTRACT RESUME TEXT
-    # --------------------------------------------------------
-
-    try:
-        resume_text = extract_resume_text(
-            file_path
-        )
-
-    except Exception as error:
-
-        candidate.resume_text = None
-        candidate.resume_analysis = None
-
-        db.commit()
-
-        raise HTTPException(
-            status_code=400,
-            detail=f"Failed to parse resume: {str(error)}",
-        )
-
-    # --------------------------------------------------------
-    # GEMINI RESUME ANALYSIS
-    # --------------------------------------------------------
-
-    try:
-        analysis = analyze_resume(
-            resume_text
-        )
-
-    except Exception as error:
-
-        candidate.resume_text = None
-        candidate.resume_analysis = None
-
-        db.commit()
-
-        raise HTTPException(
-            status_code=500,
-            detail=(
-                f"Failed to analyze resume with Gemini: "
-                f"{str(error)}"
-            ),
-        )
-
-    # --------------------------------------------------------
-    # FALLBACK DETERMINISTIC ROLE DETECTION
-    # --------------------------------------------------------
-
-    try:
-        role_data = detect_latest_role(
-            resume_text
-        )
-
-    except Exception:
-        role_data = {
-            "latest_role": None,
-            "latest_company": None,
-            "latest_role_start_date": None,
-            "latest_role_end_date": None,
-            "latest_role_description": None,
-        }
-
-    # --------------------------------------------------------
-    # SAVE RESUME DATA
-    # --------------------------------------------------------
-
-    candidate.resume_text = resume_text
-
-    # Save complete Gemini analysis
-    candidate.resume_analysis = (
-        analysis.model_dump()
-    )
-
-    # Use Gemini as the primary source for latest role
-    candidate.latest_role = (
-        analysis.latest_role
-    )
-
-    candidate.latest_company = (
-        analysis.latest_company
-    )
-
-    candidate.latest_role_start_date = (
-        analysis.start_date
-    )
-
-    candidate.latest_role_end_date = (
-        analysis.end_date
-    )
-
-    # Store responsibilities as the role description
-    candidate.latest_role_description = (
-        "\n".join(
-            analysis.responsibilities
-        )
-        if analysis.responsibilities
-        else role_data.get(
-            "latest_role_description"
-        )
-    )
-
-    # --------------------------------------------------------
-    # SAVE DATABASE CHANGES
-    # --------------------------------------------------------
-
-    db.commit()
-    db.refresh(candidate)
-
-    return candidate
+                logger.warning("Could not remove replaced resume file")
+        return candidate
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        if final_path and os.path.exists(final_path) and candidate.resume_path != final_path:
+            os.remove(final_path)
 
 
 # ============================================================
@@ -392,7 +287,7 @@ async def upload_resume(
     "/{candidate_id}/resume",
 )
 def delete_resume(
-    candidate_id: int,
+    candidate_id: int = Path(gt=0),
     db: Session = Depends(get_db),
 ):
     candidate = (
@@ -442,7 +337,7 @@ def delete_resume(
     "/{candidate_id}",
 )
 def delete_candidate(
-    candidate_id: int,
+    candidate_id: int = Path(gt=0),
     db: Session = Depends(get_db),
 ):
     candidate = (
@@ -470,41 +365,6 @@ def delete_candidate(
 
             except OSError:
                 pass
-
-    # --------------------------------------------------------
-    # FIND INTERVIEWS
-    # --------------------------------------------------------
-
-    interviews = (
-        db.query(Interview)
-        .filter(
-            Interview.candidate_id == candidate_id
-        )
-        .all()
-    )
-
-    # --------------------------------------------------------
-    # DELETE EVALUATIONS + INTERVIEWS
-    # --------------------------------------------------------
-
-    for interview in interviews:
-
-        evaluation = (
-            db.query(Evaluation)
-            .filter(
-                Evaluation.interview_id == interview.id
-            )
-            .first()
-        )
-
-        if evaluation:
-            db.delete(evaluation)
-
-        db.delete(interview)
-
-    # --------------------------------------------------------
-    # DELETE CANDIDATE
-    # --------------------------------------------------------
 
     db.delete(candidate)
 

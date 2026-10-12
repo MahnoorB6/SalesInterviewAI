@@ -5,14 +5,22 @@ from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2 import id_token
 import os
 import secrets
+import time
 from pathlib import Path
 
 from app.services.google_oauth import get_authorization_url, SCOPES
 from app.database.database import SessionLocal
 from app.models.user import User
 from app.auth import create_access_token, hash_password
+from app.config import settings
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/google", tags=["Google Calendar"])
+_oauth_codes: dict[str, tuple[str, float]] = {}
+
+
+class OAuthCodeExchange(BaseModel):
+    code: str
 
 
 
@@ -32,7 +40,7 @@ def google_login():
         value=code_verifier,
         httponly=True,
         samesite="lax",
-        secure=False,
+        secure=settings.COOKIE_SECURE,
         max_age=600,
         path="/",
     )
@@ -41,7 +49,7 @@ def google_login():
         value=state,
         httponly=True,
         samesite="lax",
-        secure=False,
+        secure=settings.COOKIE_SECURE,
         max_age=600,
         path="/",
     )
@@ -60,6 +68,10 @@ def google_callback(request: Request):
         raise HTTPException(status_code=400, detail="Google OAuth state is missing.")
 
     code_verifier = request.cookies.get("google_oauth_verifier")
+    stored_state = request.cookies.get("google_oauth_state")
+
+    if not stored_state or not secrets.compare_digest(state, stored_state):
+        raise HTTPException(status_code=400, detail="Google OAuth state validation failed. Please restart sign-in.")
 
     if not code_verifier:
         raise HTTPException(
@@ -71,11 +83,11 @@ def google_callback(request: Request):
         flow = Flow.from_client_config(
             {
                 "web": {
-                    "client_id": os.getenv("GOOGLE_CLIENT_ID"),
-                    "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
+                    "client_id": settings.GOOGLE_CLIENT_ID,
+                    "client_secret": settings.GOOGLE_CLIENT_SECRET,
                     "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                     "token_uri": "https://oauth2.googleapis.com/token",
-                    "redirect_uris": [os.getenv("GOOGLE_REDIRECT_URI")],
+                    "redirect_uris": [settings.GOOGLE_REDIRECT_URI],
                 }
             },
             scopes=SCOPES,
@@ -83,7 +95,7 @@ def google_callback(request: Request):
             code_verifier=code_verifier,
         )
 
-        flow.redirect_uri = os.getenv("GOOGLE_REDIRECT_URI")
+        flow.redirect_uri = settings.GOOGLE_REDIRECT_URI
         flow.fetch_token(authorization_response=str(request.url))
         credentials = flow.credentials
 
@@ -96,7 +108,7 @@ def google_callback(request: Request):
         google_identity = id_token.verify_oauth2_token(
             credentials.id_token,
             GoogleRequest(),
-            os.getenv("GOOGLE_CLIENT_ID"),
+            settings.GOOGLE_CLIENT_ID,
             clock_skew_in_seconds=5,
         )
 
@@ -109,11 +121,16 @@ def google_callback(request: Request):
 
         db = SessionLocal()
         try:
-            user = db.query(User).filter(User.email == google_email).first()
+            normalized_email = google_email.strip().lower()
+            if settings.recruiter_email_allowlist and normalized_email not in settings.recruiter_email_allowlist:
+                raise HTTPException(status_code=403, detail="This Google account is not authorized for the recruiter workspace.")
+            user = db.query(User).filter(User.email == normalized_email).first()
 
             if not user:
+                if normalized_email not in settings.recruiter_email_allowlist:
+                    raise HTTPException(status_code=403, detail="Recruiter account is not provisioned. Configure the recruiter email allowlist.")
                 user = User(
-                    email=google_email,
+                    email=normalized_email,
                     hashed_password=hash_password(secrets.token_urlsafe(32)),
                 )
                 db.add(user)
@@ -130,17 +147,30 @@ def google_callback(request: Request):
         with open(token_path, "w", encoding="utf-8") as token_file:
             token_file.write(credentials.to_json())
 
-        response = RedirectResponse(
-            url=f"http://localhost:5173/?google_token={access_token}"
-        )
+        exchange_code = secrets.token_urlsafe(32)
+        _oauth_codes[exchange_code] = (access_token, time.time() + 60)
+        response = RedirectResponse(url=f"{settings.FRONTEND_URL}/#oauth_code={exchange_code}")
         response.delete_cookie("google_oauth_state", path="/")
         response.delete_cookie("google_oauth_verifier", path="/")
         return response
 
     except HTTPException:
         raise
-    except Exception as error:
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning("Google OAuth callback failed (%s)", type(error).__name__)
         raise HTTPException(
             status_code=500,
-            detail=f"Google authorization failed: {error}",
+            detail="Google authorization failed. Please restart sign-in.",
         )
+
+
+@router.post("/exchange")
+def exchange_google_code(payload: OAuthCodeExchange):
+    item = _oauth_codes.pop(payload.code, None)
+    now = time.time()
+    for expired in [key for key, (_, expiry) in _oauth_codes.items() if expiry < now]:
+        _oauth_codes.pop(expired, None)
+    if not item or item[1] < now:
+        raise HTTPException(status_code=401, detail="Google sign-in code expired or already used")
+    return {"access_token": item[0], "token_type": "bearer"}

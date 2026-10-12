@@ -2,6 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
+from pydantic import BaseModel, EmailStr, Field
 
 from app.database.database import get_db
 from app.models.user import User
@@ -10,6 +11,7 @@ from app.auth import (
     verify_password,
     create_access_token,
 )
+from app.config import settings
 
 
 router = APIRouter(
@@ -18,12 +20,19 @@ router = APIRouter(
 )
 
 
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=12, max_length=72)
+
+
 @router.post("/register")
 def register(
-    email: str,
-    password: str,
+    payload: RegisterRequest,
     db: Session = Depends(get_db),
 ):
+    normalized_email = str(payload.email).strip().lower()
+    if normalized_email not in settings.recruiter_email_allowlist:
+        raise HTTPException(status_code=403, detail="Email is not authorized to register a recruiter account")
     existing_user = db.query(User).first()
 
     if existing_user:
@@ -33,8 +42,8 @@ def register(
         )
 
     new_user = User(
-        email=email,
-        hashed_password=hash_password(password),
+        email=normalized_email,
+        hashed_password=hash_password(payload.password),
     )
 
     db.add(new_user)
@@ -55,7 +64,7 @@ def login(
 ):
     user = (
         db.query(User)
-        .filter(User.email == form_data.username)
+        .filter(User.email == form_data.username.strip().lower())
         .first()
     )
 

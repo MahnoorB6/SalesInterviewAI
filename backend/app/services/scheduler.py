@@ -1,10 +1,13 @@
 import asyncio
-from datetime import datetime, timedelta
+import json
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from app.database.database import SessionLocal
 from app.models.interview import Interview
+from app.statuses import InterviewStatus, can_transition_interview
 from app.services.meet_bot import run_meet_bot
+from app.transcripts import set_structured_transcript_state
 
 
 # ============================================================
@@ -48,6 +51,47 @@ TIMEZONE = ZoneInfo("Asia/Karachi")
 active_interviews = set()
 
 active_interviews_lock = asyncio.Lock()
+
+
+def claim_scheduled_interview(db, interview_id: int) -> bool:
+    """Atomically transition scheduled -> in_progress; only one worker wins."""
+    claimed = (
+        db.query(Interview)
+        .filter(
+            Interview.id == interview_id,
+            Interview.status == InterviewStatus.SCHEDULED.value,
+        )
+        .update(
+            {Interview.status: InterviewStatus.IN_PROGRESS.value},
+            synchronize_session=False,
+        )
+    )
+    db.commit()
+    return claimed == 1
+
+
+def fail_stale_interviews(db, now=None) -> list[int]:
+    """Fail executions too old to resume safely after a process restart."""
+    now = now or datetime.now(timezone.utc)
+    stale_before = now - timedelta(minutes=35)
+    stale_rows = db.query(Interview).filter(
+        Interview.status == InterviewStatus.IN_PROGRESS.value
+    ).all()
+    failed_ids = []
+    for interview in stale_rows:
+        scheduled = interview.scheduled_at
+        if scheduled and scheduled.tzinfo is None:
+            scheduled = scheduled.replace(tzinfo=TIMEZONE)
+        if scheduled and scheduled.astimezone(timezone.utc) < stale_before:
+            interview.status = InterviewStatus.FAILED.value
+            failed_ids.append(interview.id)
+            try:
+                set_structured_transcript_state(interview, InterviewStatus.FAILED.value)
+            except (OSError, ValueError, json.JSONDecodeError) as transcript_error:
+                print(f"[SCHEDULER] Could not finalize stale transcript #{interview.id}: {type(transcript_error).__name__}")
+    if failed_ids:
+        db.commit()
+    return failed_ids
 
 
 # ============================================================
@@ -269,7 +313,7 @@ async def run_scheduled_interview(
                 "was not found."
             )
 
-            return
+            return {"outcome": "skipped", "status": None}
 
         # ----------------------------------------------------
         # VERIFY MEET LINK
@@ -282,20 +326,21 @@ async def run_scheduled_interview(
                 "does not have a Meet link."
             )
 
-            interview.status = "cancelled"
+            interview.status = InterviewStatus.FAILED.value
 
             db.commit()
 
-            return
+            return {
+                "outcome": "handled_failure",
+                "status": interview.status,
+                "error": "Interview does not have a Meet link.",
+            }
 
         # ----------------------------------------------------
         # VERIFY STATUS
         # ----------------------------------------------------
 
-        if interview.status not in (
-            "scheduled",
-            "in_progress",
-        ):
+        if interview.status != InterviewStatus.IN_PROGRESS.value:
 
             print(
                 f"[SCHEDULER] Interview #{interview_id} "
@@ -303,17 +348,13 @@ async def run_scheduled_interview(
                 "Skipping."
             )
 
-            return
+            return {"outcome": "skipped", "status": interview.status}
 
         # ----------------------------------------------------
         # MARK IN PROGRESS
         # ----------------------------------------------------
 
-        if interview.status != "in_progress":
-
-            interview.status = "in_progress"
-
-            db.commit()
+        # Status is atomically claimed by the scheduler before this task starts.
 
         print(
             f"[SCHEDULER] Interview #{interview_id} "
@@ -372,7 +413,7 @@ async def run_scheduled_interview(
                 "no longer exists."
             )
 
-            return
+            return {"outcome": "skipped", "status": None}
 
         # ----------------------------------------------------
         # IMPORTANT STATUS HANDLING
@@ -384,28 +425,28 @@ async def run_scheduled_interview(
         #
         # Therefore this scheduler should NOT blindly change
         # every returned interview to completed.
-        if interview.status == "completed":
+        if interview.status == InterviewStatus.COMPLETED.value:
 
             print(
                 f"[SCHEDULER] Interview #{interview_id} "
                 "already marked COMPLETED by interview flow."
             )
 
-        elif interview.status == "interrupted":
+        elif interview.status == InterviewStatus.INTERRUPTED.value:
 
             print(
                 f"[SCHEDULER] Interview #{interview_id} "
                 "finished as INTERRUPTED."
             )
 
-        elif interview.status == "cancelled":
+        elif interview.status == InterviewStatus.CANCELLED.value:
 
             print(
                 f"[SCHEDULER] Interview #{interview_id} "
                 "finished as CANCELLED."
             )
 
-        elif interview.status == "in_progress":
+        elif interview.status == InterviewStatus.IN_PROGRESS.value:
 
             # If the Meet bot returned without the Alena flow
             # updating the status, do NOT falsely report a
@@ -430,61 +471,52 @@ async def run_scheduled_interview(
                 f"{interview.status}"
             )
 
+        return {"outcome": "finished", "status": interview.status}
+
     except Exception as error:
 
         print()
         print("=" * 70)
-        print(
-            f"[SCHEDULER ERROR] Interview #{interview_id}"
-        )
-        print(
-            f"[SCHEDULER ERROR] "
-            f"{type(error).__name__}: {error}"
-        )
+        print(f"[SCHEDULER ERROR] Interview #{interview_id}")
+        print(f"[SCHEDULER ERROR] {type(error).__name__}: {error}")
         print("=" * 70)
 
-        # ----------------------------------------------------
-        # DATABASE ERROR STATUS
-        # ----------------------------------------------------
-
+        # Preserve existing final states and transition rules. Return the
+        # handled outcome so the task callback does not label it successful.
+        persisted_status = None
         try:
-
             interview = (
                 db.query(Interview)
-                .filter(
-                    Interview.id == interview_id
-                )
+                .filter(Interview.id == interview_id)
                 .first()
             )
-
             if interview:
-
-                # Do not overwrite a completed/interrupted
-                # interview because of a late scheduler exception.
                 if interview.status not in (
-                    "completed",
-                    "interrupted",
+                    InterviewStatus.COMPLETED.value,
+                    InterviewStatus.INTERRUPTED.value,
                 ):
-
-                    interview.status = "cancelled"
-
-                    db.commit()
-
-                    print(
-                        f"[SCHEDULER] Interview "
-                        f"#{interview_id} "
-                        "marked CANCELLED because "
-                        "the scheduler failed."
-                    )
-
+                    if can_transition_interview(
+                        interview.status, InterviewStatus.FAILED.value
+                    ):
+                        interview.status = InterviewStatus.FAILED.value
+                        db.commit()
+                persisted_status = interview.status
+                print(
+                    f"[SCHEDULER] Interview #{interview_id} "
+                    f"persisted status={persisted_status!r} after scheduler error "
+                    f"{type(error).__name__}: {error}"
+                )
         except Exception as db_error:
-
             print(
-                "[SCHEDULER] "
-                "Database update failed: "
-                f"{type(db_error).__name__}: "
-                f"{db_error}"
+                "[SCHEDULER] Database update failed: "
+                f"{type(db_error).__name__}: {db_error}"
             )
+
+        return {
+            "outcome": "handled_failure",
+            "status": persisted_status,
+            "error": f"{type(error).__name__}: {error}",
+        }
 
     finally:
 
@@ -503,6 +535,70 @@ async def run_scheduled_interview(
         print(
             f"[SCHEDULER] Task finished for "
             f"interview #{interview_id}."
+        )
+
+
+def report_scheduled_task_outcome(completed_task, interview_id: int) -> None:
+    """Log the task result separately from persisted interview status changes."""
+    try:
+        if completed_task.cancelled():
+            print(f"[SCHEDULER TASK CANCELLED] Interview #{interview_id} task was cancelled.")
+            return
+
+        exception = completed_task.exception()
+        if exception is not None:
+            print(
+                f"[SCHEDULER TASK ERROR] Interview #{interview_id} "
+                f"unhandled {type(exception).__name__}: {exception}"
+            )
+            return
+
+        result = completed_task.result()
+        if not isinstance(result, dict):
+            print(
+                f"[SCHEDULER TASK] Interview #{interview_id} "
+                "finished without an outcome result."
+            )
+            return
+
+        outcome = result.get("outcome")
+        status = result.get("status")
+        if outcome == "handled_failure":
+            print(
+                f"[SCHEDULER TASK FAILURE] Interview #{interview_id} "
+                f"handled; persisted status={status!r}; "
+                f"reason={result.get('error', 'unknown error')}"
+            )
+        elif outcome == "finished" and status == InterviewStatus.COMPLETED.value:
+            print(f"[SCHEDULER TASK SUCCESS] Interview #{interview_id} completed.")
+        elif outcome == "finished" and status == InterviewStatus.INTERRUPTED.value:
+            print(f"[SCHEDULER TASK] Interview #{interview_id} finished as INTERRUPTED.")
+        elif outcome == "finished" and status == InterviewStatus.CANCELLED.value:
+            print(
+                f"[SCHEDULER TASK] Interview #{interview_id} finished normally "
+                "with persisted status=CANCELLED."
+            )
+        elif outcome == "finished" and status == InterviewStatus.FAILED.value:
+            print(
+                f"[SCHEDULER TASK FAILURE] Interview #{interview_id} "
+                "finished with persisted status=FAILED."
+            )
+        elif outcome == "finished":
+            print(
+                f"[SCHEDULER TASK] Interview #{interview_id} "
+                f"finished with persisted status={status!r}."
+            )
+        else:
+            print(
+                f"[SCHEDULER TASK] Interview #{interview_id} "
+                f"outcome={outcome!r}; persisted status={status!r}."
+            )
+    except asyncio.CancelledError:
+        print(f"[SCHEDULER TASK CANCELLED] Interview #{interview_id} task was cancelled.")
+    except Exception as callback_error:
+        print(
+            f"[SCHEDULER CALLBACK ERROR] Interview #{interview_id} "
+            f"{type(callback_error).__name__}: {callback_error}"
         )
 
 
@@ -558,11 +654,15 @@ async def check_interviews():
             interviews = (
                 db.query(Interview)
                 .filter(
-                    Interview.status == "scheduled",
+                    Interview.status == InterviewStatus.SCHEDULED.value,
                     Interview.meet_link.isnot(None),
                 )
                 .all()
             )
+
+            # A browser/voice session cannot be resumed after a process restart.
+            # Fail stale executions after the 30-minute cap plus cleanup grace.
+            fail_stale_interviews(db)
 
             print(
                 "[SCHEDULER] Scheduled interviews found: "
@@ -717,12 +817,10 @@ async def check_interviews():
                 # CLAIM INTERVIEW
                 # ------------------------------------------------
 
-                # Set status BEFORE creating the background
-                # task so another scheduler cycle cannot select
-                # this interview again.
-                interview.status = "in_progress"
-
-                db.commit()
+                # Compare-and-set persisted status to guard against duplicate
+                # scheduler instances and polling races.
+                if not claim_scheduled_interview(db, interview_id):
+                    continue
 
                 print(
                     f"[SCHEDULER] Interview "
@@ -764,45 +862,10 @@ async def check_interviews():
                     completed_task,
                     interview_id=interview_id,
                 ):
-
-                    try:
-
-                        exception = (
-                            completed_task.exception()
-                        )
-
-                        if exception:
-
-                            print(
-                                f"[SCHEDULER TASK ERROR] "
-                                f"Interview #{interview_id}: "
-                                f"{repr(exception)}"
-                            )
-
-                        else:
-
-                            print(
-                                f"[SCHEDULER TASK] "
-                                f"Interview #{interview_id} "
-                                "completed without an "
-                                "unhandled exception."
-                            )
-
-                    except asyncio.CancelledError:
-
-                        print(
-                            f"[SCHEDULER] Interview "
-                            f"#{interview_id} "
-                            "task was cancelled."
-                        )
-
-                    except Exception as callback_error:
-
-                        print(
-                            "[SCHEDULER CALLBACK ERROR] "
-                            f"{type(callback_error).__name__}: "
-                            f"{callback_error}"
-                        )
+                    report_scheduled_task_outcome(
+                        completed_task,
+                        interview_id,
+                    )
 
                 task.add_done_callback(
                     task_done_callback

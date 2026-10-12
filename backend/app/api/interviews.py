@@ -1,17 +1,22 @@
 
 import os
+import json
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi.responses import PlainTextResponse
+import logging
 from sqlalchemy.orm import Session
 
 from app.database.database import get_db
 from app.models.interview import Interview
 from app.models.candidate import Candidate
 from app.models.interview_question import InterviewQuestion
-from app.schemas.interview import InterviewCreate, InterviewResponse
+from app.schemas.interview import InterviewCreate, InterviewQuestionResponse, InterviewResponse
+from app.statuses import InterviewStatus, can_transition_interview
+from app.auth import get_current_user
+from app.transcripts import transcript_path_for, structured_transcript_path_for
 
 # IMPORTANT:
 # Your actual file is:
@@ -29,7 +34,9 @@ from app.services.google_calendar import (
 router = APIRouter(
     prefix="/api/interviews",
     tags=["Interviews"],
+    dependencies=[Depends(get_current_user)],
 )
+logger = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -104,7 +111,7 @@ def get_candidate_email(candidate):
 
 def interview_with_candidate(
     db: Session,
-    interview_id: int,
+    interview_id: int = Path(gt=0),
 ):
     """
     Get interview together with its candidate.
@@ -269,18 +276,8 @@ def create_interview(
         )
 
     except Exception as error:
-        print(
-            "[INTERVIEW] Question generation failed: "
-            f"{error}"
-        )
-
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "Unable to generate interview questions. "
-                f"{error}"
-            ),
-        )
+        logger.exception("Question generation failed")
+        raise HTTPException(status_code=503, detail="Unable to generate interview questions")
 
     # --------------------------------------------------------
     # 5. CREATE INTERVIEW DATABASE RECORD
@@ -292,24 +289,17 @@ def create_interview(
         candidate_id=interview_data.candidate_id,
         position=position,
         scheduled_at=scheduled_at,
+        duration_minutes=interview_data.duration_minutes,
         notes=getattr(
             interview_data,
             "notes",
             None,
         ),
-        status="scheduled",
-    )
-
-    db.add(interview)
-    db.commit()
-    db.refresh(interview)
-
-    print(
-        f"[INTERVIEW] Created interview #{interview.id}"
+        status=InterviewStatus.SCHEDULED.value,
     )
 
     # --------------------------------------------------------
-    # 6. SAVE QUESTIONS
+    # 6. SAVE INTERVIEW AND QUESTIONS ATOMICALLY
     # --------------------------------------------------------
 
     try:
@@ -328,7 +318,7 @@ def create_interview(
             )
 
             interview_question = InterviewQuestion(
-                interview_id=interview.id,
+                interview=interview,
                 question_number=question_number,
                 question=question_text,
                 category=category,
@@ -336,7 +326,9 @@ def create_interview(
 
             db.add(interview_question)
 
+        db.add(interview)
         db.commit()
+        db.refresh(interview)
 
         print(
             f"[INTERVIEW] Saved {len(interview_questions)} "
@@ -347,16 +339,7 @@ def create_interview(
 
         db.rollback()
 
-        print(
-            "[INTERVIEW] Failed to save questions: "
-            f"{error}"
-        )
-
-        try:
-            db.delete(interview)
-            db.commit()
-        except Exception:
-            db.rollback()
+        logger.warning("Question persistence failed for interview request (%s)", type(error).__name__)
 
         raise HTTPException(
             status_code=500,
@@ -382,6 +365,7 @@ def create_interview(
             candidate_email=candidate_email,
             position=position,
             scheduled_at=scheduled_at,
+            duration_minutes=interview.duration_minutes,
         )
 
         if not calendar_result:
@@ -421,14 +405,7 @@ def create_interview(
         # SAVE GOOGLE CALENDAR EVENT ID
         # ----------------------------------------------------
 
-        if (
-            event_id
-            and hasattr(
-                interview,
-                "google_event_id",
-            )
-        ):
-            interview.google_event_id = event_id
+        interview.calendar_event_id = event_id
 
         db.commit()
         db.refresh(interview)
@@ -461,7 +438,7 @@ def create_interview(
             "Your sales interview has been scheduled.\n\n"
             f"Position: {position}\n"
             f"Date & Time: {scheduled_display} (Pakistan Time)\n"
-            "Duration: 30 minutes\n\n"
+            f"Duration: {interview.duration_minutes} minutes\n\n"
             f"Google Meet: {meet_link}\n\n"
             "Please join the Google Meet link at the scheduled time.\n\n"
             "Best regards,\n"
@@ -480,19 +457,8 @@ def create_interview(
             )
 
         except Exception as email_error:
-            print(
-                "[INTERVIEW] Scheduling email failed: "
-                f"{email_error}"
-            )
-
-            raise HTTPException(
-                status_code=502,
-                detail=(
-                    "Interview and Google Meet were created, but the "
-                    "scheduling email could not be sent. "
-                    f"{email_error}"
-                ),
-            )
+            logger.warning("Scheduling email failed for interview %s (%s)", interview.id, type(email_error).__name__)
+            raise HTTPException(status_code=502, detail="Interview and Meet were created, but the scheduling email could not be sent")
 
     except HTTPException:
         raise
@@ -501,19 +467,8 @@ def create_interview(
 
         db.rollback()
 
-        print(
-            "[INTERVIEW] Google Calendar creation failed: "
-            f"{error}"
-        )
-
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                "Interview questions were created, but "
-                "Google Calendar/Google Meet creation failed. "
-                f"{error}"
-            ),
-        )
+        logger.warning("Calendar event creation failed for interview %s (%s)", interview.id, type(error).__name__)
+        raise HTTPException(status_code=502, detail="Interview was saved, but Google Calendar/Meet creation failed")
 
     # --------------------------------------------------------
     # 8. RETURN INTERVIEW
@@ -569,22 +524,20 @@ def get_interviews(
                 ),
                 "position": interview.position,
                 "scheduled_at": interview.scheduled_at,
+                "duration_minutes": interview.duration_minutes,
                 "status": interview.status,
                 "meet_link": getattr(
                     interview,
                     "meet_link",
                     None,
                 ),
+                "calendar_event_id": interview.calendar_event_id,
                 "notes": getattr(
                     interview,
                     "notes",
                     None,
                 ),
-                "transcript_path": getattr(
-                    interview,
-                    "transcript_path",
-                    None,
-                ),
+                "transcript_available": bool(interview.transcript_path),
                 "completed_at": getattr(
                     interview,
                     "completed_at",
@@ -604,7 +557,7 @@ def get_interviews(
     "/{interview_id}",
 )
 def get_interview(
-    interview_id: int,
+    interview_id: int = Path(gt=0),
     db: Session = Depends(get_db),
 ):
     """
@@ -627,22 +580,20 @@ def get_interview(
         ),
         "position": interview.position,
         "scheduled_at": interview.scheduled_at,
+        "duration_minutes": interview.duration_minutes,
         "status": interview.status,
         "meet_link": getattr(
             interview,
             "meet_link",
             None,
         ),
+        "calendar_event_id": interview.calendar_event_id,
         "notes": getattr(
             interview,
             "notes",
             None,
         ),
-        "transcript_path": getattr(
-            interview,
-            "transcript_path",
-            None,
-        ),
+        "transcript_available": bool(interview.transcript_path),
         "completed_at": getattr(
             interview,
             "completed_at",
@@ -655,61 +606,42 @@ def get_interview(
 # GET INTERVIEW TRANSCRIPT
 # ============================================================
 
-@router.get(
-    "/{interview_id}/transcript",
-    response_class=FileResponse,
-)
-def get_interview_transcript(
-    interview_id: int,
-    db: Session = Depends(get_db),
-):
-    """
-    Return the actual saved .txt transcript file.
-
-    The file is continuously updated while the interview is running,
-    so this endpoint works for in-progress and completed interviews.
-    """
-
-    interview = (
-        db.query(Interview)
-        .filter(Interview.id == interview_id)
-        .first()
-    )
-
+@router.get("/{interview_id}/transcript", response_class=PlainTextResponse)
+def get_interview_transcript(interview_id: int = Path(gt=0), db: Session = Depends(get_db)):
+    interview = db.query(Interview).filter(Interview.id == interview_id).first()
     if not interview:
-        raise HTTPException(
-            status_code=404,
-            detail="Interview not found.",
-        )
+        raise HTTPException(status_code=404, detail="Interview not found")
+    if not interview.transcript_path:
+        raise HTTPException(status_code=404, detail="Transcript is not available for this interview")
+    path = transcript_path_for(interview)
+    if not path:
+        raise HTTPException(status_code=404, detail="Transcript is not available for this interview")
+    try:
+        with open(path, "r", encoding="utf-8") as transcript_file:
+            return PlainTextResponse(transcript_file.read())
+    except HTTPException:
+        raise
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Transcript file not found")
+    except OSError:
+        logger.exception("Could not retrieve transcript for interview %s", interview_id)
+        raise HTTPException(status_code=500, detail="Transcript could not be retrieved")
 
-    transcript_path = getattr(
-        interview,
-        "transcript_path",
-        None,
-    )
 
-    if not transcript_path:
-        raise HTTPException(
-            status_code=404,
-            detail="Transcript is not available for this interview yet.",
-        )
-
-    transcript_path = os.path.abspath(
-        os.path.expanduser(transcript_path)
-    )
-
-    if not os.path.isfile(transcript_path):
-        raise HTTPException(
-            status_code=404,
-            detail="Transcript file not found.",
-        )
-
-    return FileResponse(
-        path=transcript_path,
-        media_type="text/plain",
-        filename=os.path.basename(transcript_path),
-        content_disposition_type="inline",
-    )
+@router.get("/{interview_id}/transcript/structured")
+def get_structured_interview_transcript(interview_id: int = Path(gt=0), db: Session = Depends(get_db)):
+    interview = db.query(Interview).filter(Interview.id == interview_id).first()
+    if not interview:
+        raise HTTPException(status_code=404, detail="Interview not found")
+    path = structured_transcript_path_for(interview)
+    if not path or not path.is_file():
+        raise HTTPException(status_code=404, detail="Structured transcript is not available for this interview")
+    try:
+        with path.open("r", encoding="utf-8") as transcript_file:
+            return json.load(transcript_file)
+    except (OSError, json.JSONDecodeError):
+        logger.exception("Could not retrieve structured transcript for interview %s", interview_id)
+        raise HTTPException(status_code=500, detail="Structured transcript could not be retrieved")
 
 
 # ============================================================
@@ -720,8 +652,8 @@ def get_interview_transcript(
     "/{interview_id}/status",
 )
 def update_interview_status(
-    interview_id: int,
-    status: str,
+    status: InterviewStatus,
+    interview_id: int = Path(gt=0),
     db: Session = Depends(get_db),
 ):
     """
@@ -732,23 +664,10 @@ def update_interview_status(
     - in_progress
     - completed
     - cancelled
+    - interrupted
     """
 
-    allowed_statuses = {
-        "scheduled",
-        "in_progress",
-        "completed",
-        "cancelled",
-    }
-
-    if status not in allowed_statuses:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Invalid status. Allowed values: "
-                "scheduled, in_progress, completed, cancelled."
-            ),
-        )
+    status_value = status.value
 
     interview = (
         db.query(Interview)
@@ -764,9 +683,22 @@ def update_interview_status(
             detail="Interview not found.",
         )
 
-    interview.status = status
+    if status_value in {
+        InterviewStatus.IN_PROGRESS.value,
+        InterviewStatus.COMPLETED.value,
+        InterviewStatus.INTERRUPTED.value,
+        InterviewStatus.FAILED.value,
+    }:
+        raise HTTPException(
+            status_code=409,
+            detail="Execution status is managed by the scheduler and interview runner.",
+        )
 
-    if status == "completed":
+    if not can_transition_interview(interview.status, status_value):
+        raise HTTPException(status_code=409, detail=f"Cannot change interview status from {interview.status} to {status_value}")
+    interview.status = status_value
+
+    if status_value == InterviewStatus.COMPLETED.value:
         if hasattr(
             interview,
             "completed_at",
@@ -791,46 +723,6 @@ def update_interview_status(
 
 
 # ============================================================
-# GET INTERVIEW TRANSCRIPT
-# ============================================================
-
-@router.get(
-    "/{interview_id}/transcript",
-    response_class=FileResponse,
-)
-def get_interview_transcript(
-    interview_id: int,
-    db: Session = Depends(get_db),
-):
-    """Serve the actual saved transcript .txt file."""
-    interview = (
-        db.query(Interview)
-        .filter(Interview.id == interview_id)
-        .first()
-    )
-    if not interview:
-        raise HTTPException(status_code=404, detail="Interview not found.")
-
-    transcript_path = getattr(interview, "transcript_path", None)
-    if not transcript_path:
-        raise HTTPException(
-            status_code=404,
-            detail="Transcript is not available for this interview yet.",
-        )
-
-    transcript_path = os.path.abspath(os.path.expanduser(transcript_path))
-    if not os.path.isfile(transcript_path):
-        raise HTTPException(status_code=404, detail="Transcript file not found.")
-
-    return FileResponse(
-        path=transcript_path,
-        media_type="text/plain",
-        filename=os.path.basename(transcript_path),
-        content_disposition_type="inline",
-    )
-
-
-# ============================================================
 # GENERATE / REGENERATE INTERVIEW QUESTIONS
 # ============================================================
 
@@ -838,7 +730,7 @@ def get_interview_transcript(
     "/{interview_id}/questions/generate",
 )
 def generate_questions_for_interview(
-    interview_id: int,
+    interview_id: int = Path(gt=0),
     db: Session = Depends(get_db),
 ):
     """
@@ -854,6 +746,14 @@ def generate_questions_for_interview(
         db=db,
         interview_id=interview_id,
     )
+
+    # The current schema has no persisted draft state: interviews are created
+    # together with their saved questions and immediately scheduled.
+    if interview.status != "draft":
+        raise HTTPException(
+            status_code=409,
+            detail="Interview questions are frozen once the interview is saved and scheduled.",
+        )
 
     resume_analysis = getattr(
         candidate,
@@ -882,18 +782,8 @@ def generate_questions_for_interview(
         )
 
     except Exception as error:
-        print(
-            "[INTERVIEW] Question generation failed: "
-            f"{error}"
-        )
-
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "Unable to generate interview questions. "
-                f"{error}"
-            ),
-        )
+        logger.exception("Question generation failed")
+        raise HTTPException(status_code=503, detail="Unable to generate interview questions")
 
     if len(questions) != 10:
         raise HTTPException(
@@ -941,13 +831,8 @@ def generate_questions_for_interview(
 
         db.rollback()
 
-        raise HTTPException(
-            status_code=500,
-            detail=(
-                "Failed to save generated questions. "
-                f"{error}"
-            ),
-        )
+        logger.exception("Question save failed for interview %s", interview_id)
+        raise HTTPException(status_code=500, detail="Failed to save generated questions")
 
     return {
         "message": (
@@ -964,9 +849,10 @@ def generate_questions_for_interview(
 
 @router.get(
     "/{interview_id}/questions",
+    response_model=list[InterviewQuestionResponse],
 )
 def get_interview_questions(
-    interview_id: int,
+    interview_id: int = Path(gt=0),
     db: Session = Depends(get_db),
 ):
     """
@@ -1008,6 +894,7 @@ def get_interview_questions(
             ),
             "question": question.question,
             "category": question.category,
+            "created_at": question.created_at,
         }
         for question in questions
     ]

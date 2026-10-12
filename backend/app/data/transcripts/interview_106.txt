@@ -1,0 +1,39 @@
+ALENA: Hello! i am your saleinterviewer alena i am here to take your interview.
+CANDIDATE: ...
+ALENA: [Patiently] Hello, are you still there? I'd love to get started with our interview whenever you are ready.
+CANDIDATE: ...
+ALENA: [Patiently] I'm still here whenever you're ready to begin our conversation. Would you like to start the interview now, or do you need a moment?
+CANDIDATE: ...
+ALENA: [Concerned] It seems like we might have a connection issue since I haven't heard from you yet. Are you still there, or would you prefer to reschedule our interview for another time?
+CANDIDATE: ...
+ALENA: [Concerned] I haven't heard a response from you after several attempts, so it seems like there might be a technical issue or you may need to reschedule. If you are still there, please just say hello so we can begin, otherwise I will have to end this session for now.
+CANDIDATE: ...
+ALENA: [Concerned] Since I haven't received any response after multiple attempts, I will assume we are unable to connect at this time and will end the session. Please feel free to reach out again when you are ready to reschedule your interview.
+CANDIDATE: ...
+ALENA: [Concerned] I am going to end the call now since there is no response, but please do reach out again when you are ready to reschedule your interview.
+CANDIDATE: ...
+ALENA: [Concerned] As there is still no response, I am officially ending this interview session now. Please contact us again when you are ready to reschedule.
+CANDIDATE: Mm-hmm.
+ALENA: [Warmly] Thank you for joining me, I'm Alena and I'll be conducting your sales interview today. We will go through seven specific questions one at a time, so please take your time to formulate your answers. To begin, could you start by telling me about your experience in sales and what motivated you to pursue a career in this field?
+CANDIDATE: Hello.
+ALENA: [Warmly] Hello! It is great to finally connect with you. I am Alena, and I will be conducting your sales interview today by asking seven specific questions one at a time. Could you start by telling me about your experience in sales and what motivated you to pursue a career in this field?
+CANDIDATE: Um,
+ALENA: [Patiently] Take your time, there is no rush at all. Whenever you are ready, could you start by telling me about your experience in sales and what motivated you to pursue a career in this field?
+CANDIDATE: ...
+ALENA: [Patiently] I am still here and ready to listen whenever you are ready to share your thoughts. Would you like to try answering the first question about your sales experience now?
+CANDIDATE: I am selling alcohol in England.
+ALENA: [Enthusiastically] That is a fascinating and dynamic market to work in! Could you describe a time when you successfully closed a difficult sale there, what strategies did you use, and what was the outcome?
+CANDIDATE: Hmm, I'm not saying this.
+ALENA: [Empathetically] I understand, and please feel free to share only what you are comfortable discussing. Perhaps you could tell me about a different challenging sale you have experienced, or how you generally handle difficult situations with customers?
+CANDIDATE: Um, can you tell me how I'm doing now?
+ALENA: [Confidently] I am here to listen to your experiences and gather information for the hiring manager, so I cannot provide feedback on your performance during the interview itself. Let's continue with the next question to learn more about your approach. How do you handle rejection or setbacks in sales, and can you give me an example?
+CANDIDATE: Um, I mean, are you a man or a woman?
+ALENA: [Warmly] I am Alena, and I am here to conduct your interview professionally, so let's focus on your sales experience. Could you please tell me how you handle rejection or setbacks in sales, perhaps with an example?
+CANDIDATE: I wish you all the best.
+ALENA: [Warmly] Thank you for your kind words, I appreciate that. To continue our interview, could you please share how you handle rejection or setbacks in sales, perhaps with a specific example?
+CANDIDATE: I'm not saying this line, I'm not even prospecting this. I am saying, how are you? How are you not listening?
+ALENA: [Empathetically] I apologize if I seemed to miss your point; I am listening carefully to everything you say. Since you mentioned you are not currently prospecting, could you tell me how you handle rejection or setbacks in sales based on your past experiences or how you would approach them?
+CANDIDATE: Okay, I want to end this session. You're not wanted.
+ALENA: [Warmly] I understand and respect your decision to end the session immediately. Thank you for your time today, and I wish you all the best in your future endeavors.
+CANDIDATE: ...
+ALENA: [Warmly] Since you have chosen to end the session, I will now conclude our call. Thank you again for your time, and I wish you all the best.
