@@ -12,13 +12,13 @@ type AnyRow = Record<string, any>
 const API = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000/api"
 
 const criteria = [
-  ["Communication", "Clarity, listening, articulation and professional dialogue.", "communication"],
-  ["Confidence", "Composure, ownership of answers and professional presence.", "confidence"],
-  ["Sales Knowledge", "Understanding of sales process, discovery, qualification and pipeline.", "sales_knowledge"],
-  ["Lead Qualification", "Ability to identify needs, fit, intent, budget and buying signals.", "lead_qualification"],
-  ["Objection Handling", "Ability to acknowledge, diagnose and respond to customer objections.", "objection_handling"],
-  ["Persuasion", "Ability to communicate value and influence a prospect appropriately.", "persuasion"],
-  ["Closing Ability", "Ability to create next steps, ask for commitment and move toward close.", "closing_ability"],
+  ["Cold-Call Opening", "Introduces self and reason for calling, earns permission to continue, and opens discovery.", "communication"],
+  ["Managing Sales Targets", "Diagnoses the target gap, prioritizes sales activity, tracks progress, and adjusts the plan.", "confidence"],
+  ["Price Objection Response", "Explores the price concern, connects cost to customer value, and checks a fit-based response.", "sales_knowledge"],
+  ["Lead Qualification", "Uncovers needs, fit, stakeholders, budget or timing, and a useful next step.", "lead_qualification"],
+  ["Handling Objections", "Acknowledges and clarifies concerns, responds relevantly, and checks whether they are resolved.", "objection_handling"],
+  ["Competitor Differentiation", "Compares solutions fairly against customer priorities and supports relevant differences.", "persuasion"],
+  ["Customer Retention", "Supports onboarding, proactive follow-up, customer outcomes, issue resolution, and repeat business.", "closing_ability"],
 ] as const
 
 const nav = [
@@ -100,6 +100,29 @@ async function uploadCandidateResume(candidateId: number, file: File) {
       message = Array.isArray(detail)
         ? detail.map(item => [item.loc?.slice(-1)[0], item.msg].filter(Boolean).join(": ")).join("; ") || message
         : typeof detail === "string" ? detail : message
+    } catch {}
+    throw new Error(message)
+  }
+  return response.json()
+}
+
+async function evaluateTranscriptFile(file: File) {
+  const form = new FormData()
+  form.append("file", file)
+  const response = await fetch(`${API}/evaluations/transcript-file`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: form,
+  })
+  if (response.status === 401) {
+    localStorage.removeItem("access_token")
+    window.dispatchEvent(new Event("auth-expired"))
+  }
+  if (!response.ok) {
+    let message = `Transcript evaluation failed (${response.status})`
+    try {
+      const body = await response.json()
+      message = typeof body.detail === "string" ? body.detail : message
     } catch {}
     throw new Error(message)
   }
@@ -293,7 +316,7 @@ function Dashboard() {
       <article className="panel chart-panel wide"><PanelTitle title="Interview activity" sub="Scheduled and completed interviews over time."/><Chart h={270}><LineChart data={monthly}><CartesianGrid stroke="#eee9ef" strokeDasharray="4 4" vertical={false}/><XAxis dataKey="month" axisLine={false} tickLine={false}/><YAxis allowDecimals={false} axisLine={false} tickLine={false}/><Tooltip/><Line dataKey="interviews" stroke="#8b62a1" strokeWidth={3}/><Line dataKey="completed" stroke="#d786a2" strokeWidth={3}/></LineChart></Chart></article>
       <article className="panel chart-panel"><PanelTitle title="Interview pipeline" sub="Current status distribution."/><Chart h={270}><BarChart data={[{name:"Scheduled",v:vals.s},{name:"In progress",v:vals.i},{name:"Completed",v:vals.d}]}><CartesianGrid stroke="#eee9ef" strokeDasharray="4 4" vertical={false}/><XAxis dataKey="name" axisLine={false} tickLine={false}/><YAxis allowDecimals={false} axisLine={false} tickLine={false}/><Tooltip/><Bar dataKey="v" fill="#9b70b4" radius={[7,7,2,2]}/></BarChart></Chart></article>
       <article className="panel chart-panel wide"><PanelTitle title="Sales competency profile" sub="Average score by evaluation criterion."/><Chart h={300}><RadarChart data={radar}><PolarGrid/><PolarAngleAxis dataKey="subject" tick={{fontSize:9}}/><Radar dataKey="score" stroke="#9b70b4" fill="#c9a6d7" fillOpacity={.55}/><Tooltip/></RadarChart></Chart></article>
-      <article className="panel"><PanelTitle title="Evaluation criteria" sub="The standardized sales interview rubric."/><div className="criteria-list">{criteria.map(([n,d])=><div className="criteria-row" key={n}><b>{n}</b><span>{d}</span></div>)}</div></article>
+      <article className="panel"><PanelTitle title="Evaluation criteria" sub="Criteria are based on the seven sales interview questions."/><div className="criteria-list">{criteria.map(([n,d])=><div className="criteria-row" key={n}><b>{n}</b><span>{d}</span></div>)}</div></article>
     </section>
     </>}
   </>
@@ -304,7 +327,7 @@ function Candidates() {
   const [q, setQ] = useState("")
   const [listLoading, setListLoading] = useState(true)
   const [listError, setListError] = useState("")
-  const [showForm, setShowForm] = useState(false)
+  const [showForm, setShowForm] = useState(() => new URLSearchParams(location.search).get("add") === "1")
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
   const [resume, setResume] = useState<File | null>(null)
@@ -523,6 +546,7 @@ function Schedule() {
       {candidatesError && <div className="error-state" role="alert">{candidatesError}<button className="secondary-button" type="button" onClick={() => void loadCandidates()} disabled={candidatesLoading}>Retry</button></div>}
       {!candidatesLoading && !candidatesError && !cands.length && <div className="notice">No candidates are available. Add a candidate before scheduling.</div>}
       <form onSubmit={submit}><label>Candidate<select value={candidate} onChange={e => setCandidate(e.target.value)} required disabled={candidatesLoading || Boolean(candidatesError) || !cands.length}><option value="">Select candidate</option>{cands.map(x => <option value={x.id} key={x.id}>{x.name || x.full_name || `Candidate #${x.id}`}</option>)}</select></label>
+      <p className="candidate-file-note">Need to add a new candidate or upload their resume? <button className="text-button" type="button" onClick={() => navigate("candidates", "&add=1")}>Add candidate / upload resume</button></p>
       <label>Date<input type="date" value={date} onChange={e => setDate(e.target.value)} required/></label><label>Time<input type="time" value={time} onChange={e => setTime(e.target.value)} required/></label>
       <div className="schedule-summary"><b>Workflow</b><span>Google Calendar → Meet link → Alena interview → evaluation</span></div>
       <button className="primary-button full" disabled={busy || candidatesLoading || Boolean(candidatesError) || !cands.length}>{busy ? "Scheduling..." : "Schedule interview"}</button>{msg && <div className="notice">{msg}</div>}</form>
@@ -537,10 +561,16 @@ function Evaluations() {
   const [pendingInterview, setPendingInterview] = useState<AnyRow | null>(null)
   const [mode, setMode] = useState<"pending" | "history">("pending")
   const [message, setMessage] = useState("")
+  const [resumeFile, setResumeFile] = useState<File | null>(null)
+  const [resumeUploadBusy, setResumeUploadBusy] = useState(false)
+  const [resumeUploadMessage, setResumeUploadMessage] = useState("")
+  const [transcriptUploadBusy, setTranscriptUploadBusy] = useState(false)
+  const transcriptFileRef = useRef<HTMLInputElement>(null)
   const [loading, setLoading] = useState(true)
   const [evaluationsError, setEvaluationsError] = useState("")
   const [interviewsError, setInterviewsError] = useState("")
   const [generatingId, setGeneratingId] = useState<number | null>(null)
+  const [generationError, setGenerationError] = useState("")
   const requestedInterviewId = useMemo(() => {
     const value = Number(new URLSearchParams(location.search).get("interview"))
     return Number.isInteger(value) && value > 0 ? value : null
@@ -577,6 +607,62 @@ function Evaluations() {
       ) &&
       !evaluatedIds.has(Number(x.id))
   )
+  function startNewEvaluation() {
+    setMode("pending")
+    setMessage("")
+    setGenerationError("")
+    setResumeFile(null)
+    setResumeUploadMessage("")
+    if (loading) {
+      setMessage("Interview list is still loading. Try again in a moment.")
+      return
+    }
+    if (pending.length) {
+      setPendingInterview(pending[0])
+      return
+    }
+    setMessage("No completed interviews are waiting for evaluation. Complete an interview with an available transcript first.")
+  }
+  async function uploadPendingResume() {
+    const candidateId = Number(pendingInterview?.candidate_id)
+    if (!Number.isInteger(candidateId) || candidateId <= 0 || !resumeFile) return
+    const name = resumeFile.name.toLowerCase()
+    if (!name.endsWith(".pdf") && !name.endsWith(".docx")) {
+      setResumeUploadMessage("Choose a PDF or DOCX resume.")
+      return
+    }
+    if (!resumeFile.size || resumeFile.size > 10 * 1024 * 1024) {
+      setResumeUploadMessage("Choose a non-empty resume no larger than 10 MB.")
+      return
+    }
+    setResumeUploadBusy(true)
+    setResumeUploadMessage("")
+    try {
+      await uploadCandidateResume(candidateId, resumeFile)
+      setResumeFile(null)
+      setResumeUploadMessage("Resume uploaded to this candidate’s profile.")
+    } catch (error) {
+      setResumeUploadMessage(error instanceof Error ? error.message : "Resume upload failed.")
+    } finally {
+      setResumeUploadBusy(false)
+    }
+  }
+  async function analyzeTranscriptFile(file?: File) {
+    if (!file) return
+    setTranscriptUploadBusy(true)
+    setMessage("")
+    try {
+      if (!file.name.toLowerCase().endsWith(".txt")) throw new Error("Choose a .txt transcript file.")
+      if (!file.size || file.size > 5 * 1024 * 1024) throw new Error("Choose a non-empty transcript no larger than 5 MB.")
+      const result = await evaluateTranscriptFile(file)
+      setSelected(result)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not evaluate this transcript file.")
+    } finally {
+      setTranscriptUploadBusy(false)
+      if (transcriptFileRef.current) transcriptFileRef.current.value = ""
+    }
+  }
   const avg = (key: string) => {
     const a = evaluations.map(x => x[key]).filter(v => v !== null && v !== undefined && v !== "").map(Number).filter(Number.isFinite)
     return a.length ? Math.round(a.reduce((s,n) => s+n, 0) / a.length) : null
@@ -606,17 +692,20 @@ function Evaluations() {
   async function generate(interviewId: number) {
     if (!Number.isInteger(interviewId) || interviewId <= 0) return
     setGeneratingId(interviewId)
+    setGenerationError("")
     setMessage("")
     try {
       setMessage("Generating evaluation from the interview transcript...")
       const result = await post(`/evaluations/${interviewId}/generate`, {})
       await load()
-      setSelected(result)
       setPendingInterview(null)
       setMode("history")
+      await openDetails(result)
       setMessage("Evaluation generated successfully.")
     } catch (e: any) {
-      setMessage(e.message || "Evaluation could not be generated.")
+      const errorMessage = e.message || "Evaluation could not be generated."
+      setGenerationError(errorMessage)
+      setMessage(errorMessage)
     } finally {
       setGeneratingId(null)
     }
@@ -636,7 +725,7 @@ function Evaluations() {
   }
 
   return <>
-    <Header eyebrow="AI ASSESSMENT" title="Evaluations" subtitle="Evaluate completed interviews using the standardized SalesInterviewAI rubric." action={<Button onClick={() => setMode("pending")}>+ New evaluation</Button>} />
+    <Header eyebrow="AI ASSESSMENT" title="Evaluations" subtitle="Evaluate completed interviews using the standardized SalesInterviewAI rubric." action={<><Button secondary onClick={() => transcriptFileRef.current?.click()}>{transcriptUploadBusy ? "Evaluating transcript..." : "Evaluate transcript file"}</Button><input ref={transcriptFileRef} type="file" accept=".txt,text/plain" hidden onChange={event => void analyzeTranscriptFile(event.target.files?.[0])}/><Button onClick={startNewEvaluation}>+ New evaluation</Button></>} />
     <div className="evaluation-tabs">
       <button className={mode === "pending" ? "selected" : ""} onClick={() => setMode("pending")}>Pending evaluation <b>{pending.length}</b></button>
       <button className={mode === "history" ? "selected" : ""} onClick={() => setMode("history")}>Evaluation history <b>{evaluations.length}</b></button>
@@ -659,7 +748,7 @@ function Evaluations() {
     </article> : null}
 
     {!loading && !evaluationsError && <section className="evaluation-bottom">
-      <article className="panel"><PanelTitle title="Evaluation criteria" sub="Every interview is assessed against the same seven sales competencies."/>
+      <article className="panel"><PanelTitle title="Evaluation criteria" sub="Every interview is assessed against criteria from the seven sales questions."/>
         <div className="criteria-list">{criteria.map(([n,d]) => <div className="criteria-row" key={n}><b>{n}</b><span>{d}</span></div>)}</div>
       </article>
       <article className="panel"><PanelTitle title="Competency averages" sub="Average score across evaluation history."/>
@@ -668,49 +757,72 @@ function Evaluations() {
     </section>}
 
     {selected && <EvaluationModal data={selected} onClose={() => setSelected(null)} />}
-    {pendingInterview && <div className="modal-backdrop" onClick={() => setPendingInterview(null)}><section className="modal pending-evaluation-modal" role="dialog" aria-modal="true" aria-labelledby="pending-evaluation-title" onClick={e => e.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">PENDING EVALUATION</span><h2 id="pending-evaluation-title">{pendingInterview.candidate_name || pendingInterview.candidate?.name || `Interview #${pendingInterview.id}`}</h2><p className="modal-subtitle">Interview #{pendingInterview.id} · {pendingInterview.position || "Sales interview"}</p></div><button aria-label="Close evaluation prompt" onClick={() => setPendingInterview(null)}>×</button></div><p>This interview does not have a saved evaluation yet.</p>{["completed", "interrupted"].includes(String(pendingInterview.status).toLowerCase()) && pendingInterview.transcript_available ? <p>A transcript is available, so an evaluation can be generated.</p> : <p>An evaluation can be generated after the interview is completed and its transcript is available.</p>}<div className="candidate-form-actions">{["completed", "interrupted"].includes(String(pendingInterview.status).toLowerCase()) && pendingInterview.transcript_available && <button className="primary-button" onClick={() => void generate(Number(pendingInterview.id))} disabled={generatingId === Number(pendingInterview.id)}>{generatingId === Number(pendingInterview.id) ? "Generating..." : "Generate evaluation"}</button>}<button className="secondary-button" onClick={() => setPendingInterview(null)}>Close</button></div></section></div>}
+    {pendingInterview && <div className="modal-backdrop" onClick={() => setPendingInterview(null)}><section className="modal pending-evaluation-modal" role="dialog" aria-modal="true" aria-labelledby="pending-evaluation-title" onClick={e => e.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">PENDING EVALUATION</span><h2 id="pending-evaluation-title">{pendingInterview.candidate_name || pendingInterview.candidate?.name || `Interview #${pendingInterview.id}`}</h2><p className="modal-subtitle">Interview #{pendingInterview.id} · {pendingInterview.position || "Sales interview"}</p></div><button aria-label="Close evaluation prompt" onClick={() => setPendingInterview(null)}>×</button></div><p>This interview does not have a saved evaluation yet.</p>{["completed", "interrupted"].includes(String(pendingInterview.status).toLowerCase()) && pendingInterview.transcript_available ? <p>A transcript is available, so an evaluation can be generated.</p> : <p>An evaluation can be generated after the interview is completed and its transcript is available.</p>}{generationError && <div className="candidate-alert candidate-alert-error" role="alert">Evaluation failed: {generationError}</div>}<div className="pending-resume-upload"><label htmlFor="pending-resume-file">Upload or replace this candidate’s resume</label><input id="pending-resume-file" type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={event => { setResumeFile(event.target.files?.[0] || null); setResumeUploadMessage("") }}/><small>PDF or DOCX, up to 10 MB. Resume details personalize interview questions; they do not change this evaluation’s score.</small>{resumeUploadMessage && <p role="status">{resumeUploadMessage}</p>}<button className="secondary-button" type="button" onClick={() => void uploadPendingResume()} disabled={!resumeFile || resumeUploadBusy || !pendingInterview.candidate_id}>{resumeUploadBusy ? "Uploading resume..." : "Upload resume"}</button></div><div className="candidate-form-actions">{["completed", "interrupted"].includes(String(pendingInterview.status).toLowerCase()) && pendingInterview.transcript_available && <button className="primary-button" onClick={() => void generate(Number(pendingInterview.id))} disabled={generatingId === Number(pendingInterview.id)}>{generatingId === Number(pendingInterview.id) ? "Generating..." : "Generate evaluation"}</button>}<button className="secondary-button" onClick={() => setPendingInterview(null)}>Close</button></div></section></div>}
   </>
 }
 
 function EvaluationModal({ data, onClose }: { data: AnyRow, onClose: () => void }) {
   const [busy, setBusy] = useState(false)
   const [review, setReview] = useState("")
+  const [contactEmail, setContactEmail] = useState(data.candidate?.email || data.candidate_email || "")
+  const [contactName, setContactName] = useState(data.candidate?.name || "")
+  const [recruiterStatus, setRecruiterStatus] = useState(data.recruiter_status || "pending")
   const hasEvaluationId = Number.isInteger(Number(data.id)) && Number(data.id) > 0
+  const structured = data.structured_result
+  const coverage = structured?.coverage
+  const competencyEntries = Object.values(structured?.competencies || {}) as AnyRow[]
+  const questionEntries = structured?.question_evaluations || []
   async function recruiterAction(action: "approve" | "reject") {
-    if (!hasEvaluationId) return
+    if (!contactEmail.trim()) {
+      setReview("Enter the candidate’s email address to send the decision.")
+      return
+    }
     setBusy(true)
     try {
-      const result = await post(`/evaluations/${data.id}/${action}`, {})
-      setReview(result.message || `Evaluation ${action}d.`)
+      const decision = action === "approve" ? "approved" : "rejected"
+      const result = hasEvaluationId
+        ? await post(`/evaluations/${data.id}/recruiter-decision`, { decision, contact_email: contactEmail.trim(), contact_name: contactName.trim() || undefined })
+        : await post("/evaluations/transcript-decision", { decision, contact_email: contactEmail.trim(), contact_name: contactName.trim() || undefined, transcript_name: data.transcript_name, overall_score: data.overall_score })
+      setRecruiterStatus(result.recruiter_status || decision)
+      setReview(result.message || `Decision email sent to ${contactEmail.trim()}.`)
     } catch (e: any) { setReview(e.message || "Unable to update recruiter review.") }
     finally { setBusy(false) }
   }
 
-  return <div className="modal-backdrop" onClick={onClose}><div className="modal large-modal" onClick={e => e.stopPropagation()}>
-    <div className="modal-head"><div><span className="eyebrow">EVALUATION REPORT</span><h2>{data.candidate?.name || `Interview #${data.interview_id}`}</h2><p className="modal-subtitle">Interview #{data.interview_id}</p></div><button onClick={onClose}>×</button></div>
-    <div className="score-hero"><strong>{data.overall_score ?? "—"}</strong><span>/ 100</span><Status value={data.evaluation_status || data.result || "manual"}/></div>
-    <div className="detail-grid">{criteria.map(([n,,k]) => <div className="detail-score" key={k}><span>{n}</span><b>{data[k] ?? "—"}</b><div className="bar"><i style={{width:`${Math.min(Number(data[k]) || 0, 100)}%`}}/></div></div>)}</div>
-    <div className="report-grid"><div><h3>Strengths</h3><p>{data.strengths || "Not provided."}</p></div><div><h3>Weaknesses</h3><p>{data.weaknesses || "Not provided."}</p></div><div><h3>Automated summary</h3><p>{data.recommendation || "Not provided."}</p></div></div>
-    {data.structured_result ? <section className="panel">
-      <PanelTitle title="Evidence and competency profile" sub={`${data.structured_result.coverage?.description || "Coverage unavailable"} | ${Math.round((data.structured_result.coverage?.overall_confidence || 0) * 100)}% evaluation confidence`} />
-      <small>Rubric {data.rubric_version || data.structured_result.rubric_version} | {data.evaluation_method || data.structured_result.evaluation_method} | {data.runs?.length || 0} recorded run(s)</small>
-      <div className="detail-grid">{Object.values(data.structured_result.competencies || {}).map((item: any) => <div className="detail-score" key={item.competency}>
-        <span>{item.label} - {item.weight}%</span><b>{item.score == null ? "Not observed" : `${item.score}/5`}</b>
-        <p>{item.rationale}</p><small>Evidence confidence: {Math.round((item.confidence || 0) * 100)}%</small>
-        {item.evidence?.filter((x: any) => x.assessment === "demonstrated" || x.assessment === "partially_demonstrated").map((e: any, i: number) => <blockquote key={`${e.criterion}-${i}`}><q>{e.answer_excerpt}</q><br/><small>{e.criterion_label} - {e.assessment}</small></blockquote>)}
-        {!!item.missing_behaviors?.length && <small>Not evidenced in tested answers: {item.missing_behaviors.join(", ")}</small>}
-      </div>)}</div>
-      <h3>Question evidence</h3>
-      {(data.structured_result.question_evaluations || []).map((q: any) => <article className="criteria-row" key={q.question_id ?? q.question_order}>
-        <div><b>Q{q.question_order}: {q.question}</b><p>{q.candidate_answer || "No aligned candidate answer."}</p>
-          <small>{q.relevant_competencies?.join(", ") || "No competency tag"} | {q.score == null ? "Not scored" : `${q.score}/5`} | {q.quality_indicator}</small>
-          {q.evidence?.map((e: any, i: number) => <p key={`${e.criterion}-${i}`}><q>{e.answer_excerpt}</q> | {e.criterion_label}: {e.assessment}</p>)}
-        </div>
-      </article>)}
-      <p><b>Recruiter decision remains independent.</b> This rubric output is evidence for review, not an approve/reject recommendation.</p>
-    </section> : <div className="notice">This is a legacy/manual evaluation without structured evidence or reproducible rubric provenance.</div>}
-    {hasEvaluationId && <div className="review-actions"><span>Recruiter decision: <b>{data.recruiter_status || "pending"}</b></span><div><button className="secondary-button" disabled={busy} onClick={() => recruiterAction("reject")}>Reject</button><button className="primary-button" disabled={busy} onClick={() => recruiterAction("approve")}>Approve</button></div></div>}
-    {review && <div className="notice">{review}</div>}
+  return <div className="modal-backdrop" onClick={onClose}><div className="modal large-modal evaluation-report-modal" role="dialog" aria-modal="true" aria-labelledby="evaluation-report-title" onClick={e => e.stopPropagation()}>
+    <div className="modal-head"><div><span className="eyebrow">EVALUATION REPORT</span><h2 id="evaluation-report-title">{data.candidate?.name || data.transcript_name || `Interview #${data.interview_id}`}</h2><p className="modal-subtitle">{data.interview_id ? `${data.position || "Sales interview"} · Interview #${data.interview_id}` : "Standalone transcript evaluation"}</p></div><button aria-label="Close evaluation report" onClick={onClose}>×</button></div>
+    <section className="report-overview">
+      <div className="report-score-card"><span className="report-label">OVERALL SCORE</span><div><strong>{data.overall_score ?? "—"}</strong><span>/ 100</span></div><Status value={data.evaluation_status || data.result || "manual"}/><small>Evidence summary for recruiter review</small></div>
+      <div className="report-coverage-card"><div className="report-section-title"><div><span className="report-label">EVIDENCE COVERAGE</span><h3>{coverage?.description || "Coverage details unavailable"}</h3></div></div><div className="report-metrics"><div><strong>{coverage?.observed_count ?? "—"}<small>/{coverage?.total_competencies ?? 7}</small></strong><span>competencies observed</span></div><div><strong>{Math.round((coverage?.overall_confidence || 0) * 100)}%</strong><span>evaluation confidence</span></div><div><strong>{questionEntries.length || "—"}</strong><span>questions reviewed</span></div></div><div className="report-version">Rubric {data.rubric_version || structured?.rubric_version || "—"} · {data.evaluation_method || structured?.evaluation_method || "—"}</div></div>
+    </section>
+    <section className="report-summary-grid" aria-label="Evaluation summary">
+      <article className="report-summary-card"><span>STRENGTHS</span><h3>What went well</h3><p>{data.strengths || "No strengths summary provided."}</p></article>
+      <article className="report-summary-card report-growth-card"><span>DEVELOPMENT AREAS</span><h3>What to explore</h3><p>{data.weaknesses || "No development areas identified."}</p></article>
+      <article className="report-summary-card report-recommendation-card"><span>REVIEW GUIDANCE</span><h3>Recruiter context</h3><p>{data.recommendation || "Use the cited evidence and your own interview notes to guide review."}</p></article>
+    </section>
+    {structured ? <>
+      <section className="report-section"><div className="report-section-heading"><div><span className="report-label">RUBRIC BREAKDOWN</span><h3>Competency profile</h3></div><small>Scores use a 1–5 behavior scale. “Not observed” means the transcript did not provide enough evidence.</small></div>
+        <div className="competency-report-grid">{competencyEntries.map((item: any) => <article className="competency-report-card" key={item.competency}><div className="competency-report-top"><div><h4>{item.label}</h4><span>{item.weight}% of overall score</span></div><strong>{item.score == null ? "—" : `${item.score}`}<small>{item.score == null ? "not observed" : "/ 5"}</small></strong></div><div className="competency-meter"><i style={{width:`${item.score == null ? 0 : item.score * 20}%`}}/></div><p>{item.rationale}</p><div className="competency-meta"><span>{item.sufficiently_observed ? "Enough evidence" : item.observed ? "Limited evidence" : "Not observed"}</span><span>{Math.round((item.confidence || 0) * 100)}% confidence</span></div>{!!item.missing_behaviors?.length && <div className="missing-evidence"><b>Not evidenced</b><span>{item.missing_behaviors.join(" · ")}</span></div>}</article>)}</div>
+      </section>
+      <section className="report-section question-report-section"><div className="report-section-heading"><div><span className="report-label">SOURCE EVIDENCE</span><h3>Alena and candidate speech</h3></div><small>Each entry shows Alena’s recorded prompt and the candidate’s matched speech.</small></div>
+        <div className="question-report-list">{questionEntries.map((q: any) => {
+          const supported = (q.evidence || []).filter((e: any) => e.assessment === "demonstrated" || e.assessment === "partially_demonstrated")
+          return <details className="question-report-item" key={q.question_id ?? q.question_order}>
+            <summary><span className="question-number">ALENA · Q{q.question_order}</span><span className="question-summary-text">{q.interviewer_speech || q.question || "Alena's speech unavailable."}</span><span className="question-score">{q.score == null ? "Not scored" : `${q.score}/5`}</span></summary>
+            <div className="question-report-body">
+              <span className="report-label">ALENA’S SPEECH</span><p>{q.interviewer_speech || q.question || "Alena's speech unavailable."}</p>
+              <span className="report-label">CANDIDATE’S SPEECH</span><p>{q.candidate_answer || "No candidate speech was matched to this question."}</p>
+              <div className="question-tags">{(q.relevant_competencies || []).map((name: string) => <span key={name}>{criteria.find(([, , key]) => key === name)?.[0] || name.replaceAll("_", " ")}</span>)}<small>{q.quality_indicator || "Evidence quality unavailable"}</small></div>
+              <div className="question-score-reason"><b>Why this score</b><p>{q.score_rationale || (q.score == null ? "This question was not scored against the sales rubric." : "Score rationale unavailable for this saved evaluation.")}</p></div>
+              {!!supported.length && <div className="question-evidence-list"><b>Criteria evidenced in the answer</b>{supported.map((e: any, i: number) => <blockquote key={`${e.criterion}-${i}`}><q>{e.answer_excerpt}</q><span>{e.criterion_label} · {e.assessment.replaceAll("_", " ")}</span></blockquote>)}</div>}
+              {!!q.missing_behaviors?.length && <div className="missing-evidence"><b>Criteria not evidenced</b><span>{q.missing_behaviors.join(" · ")}</span></div>}
+            </div>
+          </details>
+        })}</div>
+      </section>
+      <p className="report-independence-note"><b>Recruiter decision remains independent.</b> This report summarizes transcript evidence and does not make a hiring recommendation.</p>
+    </> : <div className="notice">This is a legacy/manual evaluation without structured evidence or reproducible rubric provenance.</div>}
+    <section className="recruiter-decision-panel"><div><span className="report-label">RECRUITER DECISION</span><h3>Send the final decision</h3><p>Choose a decision and provide the recipient’s contact details. An email will be sent when you confirm.</p></div><div className="decision-contact-grid"><label>Candidate name<input value={contactName} onChange={event => setContactName(event.target.value)} placeholder="Candidate name" maxLength={150}/></label><label>Candidate email<input type="email" value={contactEmail} onChange={event => setContactEmail(event.target.value)} placeholder="candidate@example.com" required maxLength={254}/></label></div><div className="review-actions"><span>Current status: <b>{recruiterStatus}</b></span><div><button className="secondary-button" disabled={busy || recruiterStatus !== "pending"} onClick={() => void recruiterAction("reject")}>{busy ? "Sending..." : "Reject & email"}</button><button className="primary-button" disabled={busy || recruiterStatus !== "pending"} onClick={() => void recruiterAction("approve")}>{busy ? "Sending..." : "Approve & email"}</button></div></div>{review && <div className={recruiterStatus === "pending" ? "candidate-alert candidate-alert-error" : "candidate-alert candidate-alert-success"} role="status">{review}</div>}</section>
   </div></div>
 }
 

@@ -2,7 +2,7 @@
 
 ## Current evaluation method
 
-`BehavioralRubricEvaluationEngine` implements `EvaluationEngine`. The current method is deterministic and explicitly versioned as `behavioral_rubric_v1` (`sales_behavioral_1.0`, evaluator `behavioral_rubric_engine_1.0`). It is not a trained model and does not call Gemini.
+`BehavioralRubricEvaluationEngine` implements `EvaluationEngine`. The current method is deterministic and explicitly versioned as `behavioral_rubric_v2` (`sales_behavioral_1.1`, evaluator `behavioral_rubric_engine_1.1`). It adds an observable reflection and adaptation criterion to confidence/ownership and emphasizes outcomes in the sales knowledge anchors. It is not a trained model and does not call Gemini.
 
 Competencies, weights, observable criteria, question-intent tags, and the 1–5 behavior anchors live together in `app/services/evaluation_rubric.py`. Each criterion detector requires a phrase pattern associated with an action or demonstrated behavior. Merely mentioning a sales term, or giving a long answer, does not add points. The engine quotes the exact answer excerpt it used. An absent criterion is linked to the answer that was reviewed; an unasked or unanswerable competency is `not_observed` or `uncertain`, with no score.
 

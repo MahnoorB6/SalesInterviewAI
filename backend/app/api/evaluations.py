@@ -1,10 +1,13 @@
 import json
 import os
 import logging
+import re
+from typing import Literal
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path, UploadFile, File
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.database.database import get_db
@@ -36,6 +39,217 @@ router = APIRouter(
     dependencies=[Depends(get_current_user)],
 )
 logger = logging.getLogger(__name__)
+MAX_TRANSCRIPT_UPLOAD_BYTES = 5 * 1024 * 1024
+
+
+class RecruiterDecisionRequest(BaseModel):
+    decision: Literal["approved", "rejected"]
+    contact_email: str = Field(min_length=3, max_length=254)
+    contact_name: str | None = Field(default=None, max_length=150)
+    transcript_name: str | None = Field(default=None, max_length=255)
+    overall_score: float | None = Field(default=None, ge=0, le=100)
+
+
+def _send_recruiter_decision_email(
+    *, recipient: str, contact_name: str, decision: str,
+    overall_score: float | None, transcript_name: str | None = None,
+):
+    email = recipient.strip()
+    if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email):
+        raise HTTPException(status_code=422, detail="Enter a valid recipient email address.")
+    approved = decision == "approved"
+    outcome = "selected to move forward" if approved else "not selected to move forward at this stage"
+    result_label = "APPROVED" if approved else "NOT SELECTED"
+    score_line = f"Overall Score: {overall_score}/100\n" if overall_score is not None else ""
+    transcript_line = f"Transcript reviewed: {transcript_name}\n" if transcript_name else ""
+    body = (
+        f"Dear {contact_name or 'Candidate'},\n\n"
+        "Thank you for participating in the interview process.\n\n"
+        f"We are pleased to inform you that you have been {outcome}.\n\n"
+        f"Interview Result: {result_label}\n{score_line}{transcript_line}\n"
+        "Best regards,\nSalesInterviewAI\n"
+    ) if approved else (
+        f"Dear {contact_name or 'Candidate'},\n\n"
+        "Thank you for taking the time to participate in the interview process.\n\n"
+        f"After careful consideration, we regret to inform you that you have been {outcome}.\n\n"
+        f"Interview Result: {result_label}\n{score_line}{transcript_line}\n"
+        "We appreciate your time and interest in the opportunity and wish you the best in your future career.\n\n"
+        "Best regards,\nSalesInterviewAI\n"
+    )
+    try:
+        result = send_email(
+            recipient_email=email,
+            subject="SalesInterviewAI - Interview Result",
+            body=body,
+        )
+    except Exception as error:
+        logger.warning("Recruiter decision email failed (%s)", type(error).__name__)
+        raise HTTPException(status_code=502, detail="The decision was not emailed. Check the email connection and try again.") from error
+    return email, result
+
+
+@router.post("/transcript-decision")
+def decide_standalone_transcript(payload: RecruiterDecisionRequest):
+    recipient, email_result = _send_recruiter_decision_email(
+        recipient=payload.contact_email,
+        contact_name=payload.contact_name or "Candidate",
+        decision=payload.decision,
+        overall_score=payload.overall_score,
+        transcript_name=payload.transcript_name,
+    )
+    return {
+        "message": f"Decision email sent to {recipient}.",
+        "recruiter_status": payload.decision,
+        "email_sent_to": recipient,
+        "email_message_id": email_result.get("id") if isinstance(email_result, dict) else None,
+    }
+
+
+@router.post("/{evaluation_id}/recruiter-decision")
+def decide_saved_evaluation(
+    payload: RecruiterDecisionRequest,
+    evaluation_id: int = Path(gt=0),
+    db: Session = Depends(get_db),
+):
+    evaluation = (
+        db.query(Evaluation)
+        .filter(Evaluation.id == evaluation_id)
+        .with_for_update()
+        .populate_existing()
+        .first()
+    )
+    if not evaluation:
+        raise HTTPException(status_code=404, detail="Evaluation not found")
+    if evaluation.recruiter_status not in (None, "pending"):
+        raise HTTPException(status_code=409, detail=f"Evaluation already has the {evaluation.recruiter_status} decision")
+    interview = db.query(Interview).filter(Interview.id == evaluation.interview_id).first()
+    candidate = db.query(Candidate).filter(Candidate.id == interview.candidate_id).first() if interview else None
+    recipient = payload.contact_email or (candidate.email if candidate else "")
+    name = payload.contact_name or (candidate.name if candidate else "Candidate")
+    email_sent_to, email_result = _send_recruiter_decision_email(
+        recipient=recipient,
+        contact_name=name,
+        decision=payload.decision,
+        overall_score=evaluation.overall_score,
+    )
+    evaluation.recruiter_status = payload.decision
+    evaluation.reviewed_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(evaluation)
+    return {
+        "message": f"Decision recorded and email sent to {email_sent_to}.",
+        "evaluation_id": evaluation.id,
+        "recruiter_status": evaluation.recruiter_status,
+        "reviewed_at": evaluation.reviewed_at,
+        "email_sent_to": email_sent_to,
+        "email_message_id": email_result.get("id") if isinstance(email_result, dict) else None,
+    }
+
+
+@router.post("/transcript-file")
+async def evaluate_transcript_file(file: UploadFile = File(...)):
+    """Evaluate a recruiter-provided TXT transcript without linking a candidate."""
+    if not file.filename or not file.filename.lower().endswith(".txt"):
+        raise HTTPException(status_code=400, detail="Choose a .txt transcript file.")
+    content = await file.read(MAX_TRANSCRIPT_UPLOAD_BYTES + 1)
+    if not content:
+        raise HTTPException(status_code=400, detail="The selected transcript file is empty.")
+    if len(content) > MAX_TRANSCRIPT_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Transcript must be 5 MB or smaller.")
+    try:
+        transcript = content.decode("utf-8-sig").strip()
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="Transcript must be a UTF-8 text file.")
+    if not transcript:
+        raise HTTPException(status_code=400, detail="The selected transcript file contains no text.")
+
+    turns: list[tuple[str, str]] = []
+    current_role: str | None = None
+    current_text: list[str] = []
+
+    def save_turn() -> None:
+        text = " ".join(current_text).strip()
+        if current_role and text:
+            turns.append((current_role, text))
+
+    role_pattern = re.compile(
+        r"^\s*(?:\[[^\]]+\]\s*)?(?:\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}\s*)?"
+        r"([A-Za-z][A-Za-z _-]*?\d*)\s*:\s*(.*)$"
+    )
+    for line in transcript.splitlines():
+        match = role_pattern.match(line)
+        if match:
+            save_turn()
+            label = re.sub(r"[_-]+", " ", match.group(1)).strip().lower()
+            if re.fullmatch(r"(?:q|question)\s*\d*", label):
+                current_role = "interviewer"
+            elif re.fullmatch(r"(?:a|answer)\s*\d*", label):
+                current_role = "candidate"
+            elif any(token in label for token in ("interviewer", "alena", "agent", "assistant", "host", "chatbot")) or label in {"ai", "bot"}:
+                current_role = "interviewer"
+            elif any(token in label for token in ("candidate", "applicant", "respondent", "sales rep")) or label in {"user", "answer", "a"} or label.startswith("speaker 0"):
+                current_role = "candidate"
+            elif label.startswith("speaker 1"):
+                current_role = "interviewer"
+            else:
+                current_role = None
+            current_text = [match.group(2).strip()]
+        elif current_role and line.strip():
+            current_text.append(line.strip())
+        else:
+            save_turn()
+            current_role = None
+            current_text = []
+    save_turn()
+
+    # Also accept plain Q/A transcripts where prompts and answers are on separate lines.
+    if not any(role == "interviewer" for role, _ in turns):
+        plain_turns = []
+        for line in transcript.splitlines():
+            text = line.strip()
+            if not text or set(text) <= {"=", "-", "_"}:
+                continue
+            plain_turns.append(("interviewer" if "?" in text else "candidate", text))
+        if any(role == "interviewer" for role, _ in plain_turns):
+            turns = plain_turns
+
+    questions = []
+    normalized_turns = []
+    for role, text in turns:
+        if role == "interviewer":
+            prompt = text if "?" in text else f"{text}?"
+            questions.append({"question_number": len(questions) + 1, "question": prompt})
+            normalized_turns.append(f"INTERVIEWER: {prompt}")
+        else:
+            normalized_turns.append(f"CANDIDATE: {text}")
+
+    if not questions:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not identify interview questions in this transcript. Use speaker labels (including timestamps) or put each question on its own line ending with a question mark.",
+        )
+    try:
+        result = evaluate_interview(transcript="\n".join(normalized_turns), interview_questions=questions)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except Exception:
+        logger.exception("Transcript-file evaluation failed")
+        raise HTTPException(status_code=500, detail="Evaluation could not be generated from this transcript.")
+
+    profiles = result["competencies"]
+    return {
+        "transcript_name": file.filename,
+        "overall_score": result["overall_score"],
+        **{key: profiles[key]["score_out_of_100"] for key in ("communication", "confidence", "sales_knowledge", "lead_qualification", "objection_handling", "persuasion", "closing_ability")},
+        "recommendation": result["recommendation"],
+        "strengths": "\\n".join(result["strengths"]),
+        "weaknesses": "\\n".join(result["weaknesses"]),
+        "evaluation_status": result["evaluation_status"],
+        "rubric_version": result["rubric_version"],
+        "evaluator_version": result["evaluator_version"],
+        "evaluation_method": result["evaluation_method"],
+        "structured_result": result,
+    }
 
 
 # ============================================================

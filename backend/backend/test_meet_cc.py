@@ -7,7 +7,8 @@ async def main():
     async with async_playwright() as p:
 
         browser = await p.chromium.launch(
-            headless=False
+            headless=False,
+            chromium_sandbox=True,
         )
 
         page = await browser.new_page()

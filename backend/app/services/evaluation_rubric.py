@@ -3,9 +3,9 @@
 from dataclasses import dataclass
 
 
-RUBRIC_VERSION = "sales_behavioral_1.0"
-EVALUATOR_VERSION = "behavioral_rubric_engine_1.0"
-EVALUATION_METHOD = "behavioral_rubric_v1"
+RUBRIC_VERSION = "sales_questions_1.2"
+EVALUATOR_VERSION = "sales_question_rubric_engine_1.2"
+EVALUATION_METHOD = "behavioral_rubric_v2"
 PASS_SCORE = None  # Automated evaluation does not make a hiring decision.
 RATING_RATIO_THRESHOLDS = {5: 0.90, 4: 0.65, 3: 0.35}
 
@@ -38,32 +38,26 @@ def _anchors(label: str, low: str, emerging: str, effective: str, strong: str) -
 
 
 COMPETENCIES: tuple[Competency, ...] = (
-    Competency("communication", "Communication", 15, (
-        Criterion("direct_answer", "answers the question directly", (r"\b(?:I|we|my approach|the first thing)\s+(?:would|did|do|start|began|asked|used|handled|focused)\b",)),
-        Criterion("organized_ideas", "organizes ideas clearly", (r"\bfirst\b.{0,240}\b(?:then|next|after that|finally)\b",), (r"\b(?:first|second|then|finally)\b",)),
-        Criterion("explains_reasoning", "explains reasoning", (r"\b(?:because|so that|the reason (?:I|we)|which meant)\b",)),
-        Criterion("relevance", "stays relevant to the situation", (r"\b(?:in that situation|for that customer|in this case|based on what (?:they|the customer) needed)\b",)),
-        Criterion("adapts_explanation", "adapts the explanation to context", (r"\b(?:tailor|adapt|adjust|change)\w*\b.{0,100}\b(?:customer|prospect|audience|their needs|situation)\b",)),
-        Criterion("listens_and_responds", "responds to what the customer said", (r"\b(?:you mentioned|they told me|the customer said|I listened|I paraphrased|I reflected back|I asked them)\b",)),
-        Criterion("professional", "communicates respectfully and transparently", (r"\b(?:I was transparent|I explained the limitation|I acknowledged|I appreciate|I understand why)\b",)),
-    ), _anchors("Communication", "does not answer the prompt or provide a relevant response", "responds but ideas are hard to follow or reasoning is absent", "the answer is understandable and stays on topic", "the answer is organized, reasoned, relevant, and adapted to the customer's context")),
-    Competency("confidence", "Confidence", 10, (
-        Criterion("ownership", "takes ownership of personal actions", (r"\bI\s+(?:personally\s+)?(?:led|owned|decided|asked|recommended|changed|followed up|handled|learned|took responsibility)\b",)),
-        Criterion("decision_clarity", "explains decisions clearly", (r"\bI (?:chose|decided|recommended|prioritized)\b.{0,140}\b(?:because|based on|after|when)\b",)),
-        Criterion("composure", "responds constructively when challenged", (r"\b(?:when (?:they|the customer) (?:challenged|disagreed|pushed back)|after (?:they|the customer) objected)\b.{0,180}\b(?:I|we)\b",)),
-        Criterion("honest_uncertainty", "communicates uncertainty honestly", (r"\b(?:I don't know|I am not sure|I wasn't certain|I would verify|I would check|I would find out)\b",)),
-        Criterion("supported_claims", "supports claims with reasoning or outcomes", (r"\b(?:resulted in|increased by|reduced by|we achieved|the outcome was|I measured|for example)\b",)),
-    ), _anchors("Confidence", "does not explain personal actions or decisions", "makes claims with little ownership or support", "explains a decision or takes ownership of an action", "takes ownership, gives reasoned decisions, and stays constructive or appropriately candid under challenge")),
-    Competency("sales_knowledge", "Sales Knowledge", 15, (
-        Criterion("sales_process", "understands stages of the sales process", (r"\b(?:prospect|outreach)\b.{0,180}\b(?:discovery|qualif\w*|proposal|close|follow-up)\b",)),
-        Criterion("discovery", "uses discovery to understand the opportunity", (r"\b(?:discovery|explor\w*|understand)\w*\b.{0,100}\b(?:need|challenge|goal|current process|problem)\b",)),
-        Criterion("qualification", "qualifies fit and readiness", (r"\b(?:qualif\w*|assess fit|determine fit)\b.{0,160}\b(?:need|fit|budget|timeline|authority|decision|stakeholder)\b",)),
-        Criterion("customer_needs", "centers customer needs", (r"\b(?:customer|prospect)\w*\b.{0,100}\b(?:need|goal|problem|priority|challenge)\b",)),
-        Criterion("value_proposition", "connects an offer to customer value", (r"\b(?:value proposition|return on investment|ROI|business outcome|benefit)\b.{0,120}\b(?:need|goal|cost|result|customer)\b",)),
-        Criterion("negotiation", "negotiates with a reasoned trade-off", (r"\b(?:trade-off|in exchange for|rather than discount|negotiat\w*)\b.{0,140}\b(?:value|term|scope|price|commitment|need)\b",)),
-        Criterion("closing", "understands commitment and next steps", (r"\b(?:ask for|secure|confirm)\b.{0,80}\b(?:commitment|decision|next step|agreement)\b",)),
-        Criterion("ethical_selling", "describes honest, customer-fit selling", (r"\b(?:not a fit|honest about|transparent about|would not recommend|customer's best interest)\b",)),
-    ), _anchors("Sales Knowledge", "does not describe a relevant sales approach", "names sales concepts without explaining how they are applied", "describes at least one relevant sales practice", "connects discovery, qualification, value, negotiation, and ethical advancement where the prompt allows")),
+    Competency("communication", "Cold-Call Opening", 15, (
+        Criterion("permission_intro", "opens with a concise introduction and reason for calling", (r"\b(?:my name is|this is)\b.{0,100}\b(?:calling|reach(?:ing)? out)\b",)),
+        Criterion("relevance_hook", "gives a relevant reason to continue", (r"\b(?:noticed|saw|work with|help|calling because|reaching out because)\b.{0,140}\b(?:company|team|business|sales|customer|challenge|result)\b",)),
+        Criterion("permission_based", "asks permission or checks availability", (r"\b(?:is now a bad time|do you have a minute|have I caught you at a good time|can I take|could I briefly)\b",)),
+        Criterion("open_question", "starts discovery with an open question", (r"\b(?:how are you|what are you currently|how do you currently|what challenges|how is your team)\b",)),
+    ), _anchors("Cold-Call Opening", "does not establish who is calling or why", "introduces the company but gives little reason to engage", "introduces self and a relevant reason for the call", "opens briefly, earns permission, states relevant context, and invites dialogue")),
+    Competency("confidence", "Managing Sales Targets", 15, (
+        Criterion("reviews_pipeline", "reviews pipeline and target gap", (r"\b(?:review|reviewed|check|checked|analy[sz]e|analysed)\b.{0,100}\b(?:pipeline|target|quota|gap|forecast)\b",)),
+        Criterion("prioritizes_activity", "prioritizes high-value sales activity", (r"\b(?:prioriti[sz]e|focus|increase|schedule)\w*\b.{0,120}\b(?:prospect|call|follow-up|meeting|opportunit|pipeline|account)\w*\b",)),
+        Criterion("diagnoses_blocker", "identifies why performance is behind", (r"\b(?:identify|understand|find out|diagnos)\w*\b.{0,120}\b(?:why|blocker|bottleneck|conversion|stuck|behind|shortfall)\b",)),
+        Criterion("tracks_adjustment", "tracks progress and adjusts the plan", (r"\b(?:track|measure|review)\w*\b.{0,120}\b(?:daily|weekly|progress|conversion|results|target)\b",)),
+        Criterion("seeks_coaching", "uses coaching or resources when useful", (r"\b(?:coach|manager|team|training|feedback|support)\b",)),
+    ), _anchors("Managing Sales Targets", "does not describe a plan when behind target", "relies on vague effort without diagnosing the gap", "identifies a gap and takes focused corrective action", "diagnoses the pipeline, prioritizes measurable actions, tracks results, and adapts or seeks support")),
+    Competency("sales_knowledge", "Price Objection Response", 15, (
+        Criterion("acknowledges_price", "acknowledges the price concern without arguing", (r"\b(?:understand|appreciate|hear|recognize|acknowledge)\w*\b.{0,100}\b(?:price|cost|expensive|budget|concern)\b",)),
+        Criterion("explores_price", "clarifies what makes the price too high", (r"\b(?:ask|asked|clarif\w*|explor\w*)\b.{0,100}\b(?:price|cost|budget|expensive|concern|compare)\b",)),
+        Criterion("ties_to_value", "connects price to relevant customer value", (r"\b(?:value|benefit|return|ROI|save|reduce|result|outcome)\b.{0,120}\b(?:price|cost|investment|need|goal|customer)\b",)),
+        Criterion("offers_options", "offers a suitable option or scope adjustment", (r"\b(?:option|alternative|smaller plan|phased|scope|payment|package|pilot|trial)\b",)),
+        Criterion("checks_response", "checks whether the response addresses the concern", (r"\b(?:does that|would that|how does that|is price still|address your concern)\b",)),
+    ), _anchors("Price Objection Response", "dismisses or ignores the price concern", "responds with a generic discount or feature pitch", "explores the concern and explains relevant value", "diagnoses price context, supports value, considers fit-based options, and checks resolution")),
     Competency("lead_qualification", "Lead Qualification", 15, (
         Criterion("needs", "discovers customer needs", (r"\b(?:asked|ask|explor\w*|identify|understand)\w*\b.{0,120}\b(?:need|goal|problem|challenge|priority)\b",)),
         Criterion("follow_up", "asks useful follow-up questions", (r"\b(?:follow-up question|followed up by asking|asked (?:what|why|how|which)|clarif\w* question|probed further)\b",)),
@@ -74,7 +68,7 @@ COMPETENCIES: tuple[Competency, ...] = (
         Criterion("success_criteria", "identifies success criteria", (r"\b(?:success (?:should )?look like|measure success|success criteria|key outcome|how they would measure)\b",)),
         Criterion("next_step", "establishes a relevant next step", (r"\b(?:agreed on|schedule\w*|scheduled|confirmed|set up|next step|follow up)\b.{0,100}\b(?:demo|meeting|date|customer|proposal|decision|call|trial)?\b",)),
     ), _anchors("Lead Qualification", "does not establish customer fit or needs", "mentions qualification topics without investigating the opportunity", "uncovers a need and at least one fit or readiness factor", "systematically explores needs, fit, stakeholders, readiness, success, and a suitable next step")),
-    Competency("objection_handling", "Objection Handling", 15, (
+    Competency("objection_handling", "Handling Objections", 15, (
         Criterion("acknowledges", "acknowledges the objection", (r"\b(?:I|we) (?:acknowledged|recognized|validated|understood|appreciated)\b.{0,80}\b(?:concern|objection|hesitation|worry|issue)\b",)),
         Criterion("diagnoses", "identifies the underlying concern", (r"\b(?:asked|clarified|explored|probed)\b.{0,100}\b(?:why|what|which|specifically|underlying|concern|reason)\b",)),
         Criterion("clarifies", "asks a clarifying question", (r"\b(?:asked|followed up|clarified)\b.{0,100}\b(?:what|why|how|which|specifically)\b",)),
@@ -85,26 +79,21 @@ COMPETENCIES: tuple[Competency, ...] = (
         Criterion("checks_resolution", "checks whether the concern is resolved", (r"\b(?:does that address|have I answered|does that resolve|would that help|is that still a concern|did that answer)\b",)),
         Criterion("advances", "moves the conversation forward appropriately", (r"\b(?:next step|move forward|follow up|schedule|trial|demo|revisit)\b",)),
     ), _anchors("Objection Handling", "no meaningful response to an objection is demonstrated", "acknowledges an objection but offers a weak or generic response", "identifies the concern and gives a relevant response", "diagnoses the concern, tailors a value-based response, and checks resolution or an appropriate next step")),
-    Competency("persuasion", "Persuasion", 15, (
-        Criterion("need_benefit", "connects benefits to stated needs", (r"\b(?:because you|based on your|given your|for your)\b.{0,130}\b(?:need|goal|priority|challenge|problem|team)\b",)),
-        Criterion("value", "explains value clearly", (r"\b(?:value|benefit|outcome|savings|impact)\b.{0,120}\b(?:customer|team|business|goal|need|result)\b",)),
-        Criterion("supports_claims", "supports claims with evidence", (r"\b(?:for example|we measured|the result|data showed|customer achieved|increased by|reduced by)\b",)),
-        Criterion("relevant_examples", "uses a relevant example", (r"\b(?:for example|for instance|in a similar situation|one customer|a comparable client)\b",)),
-        Criterion("adapts", "adapts the argument to customer context", (r"\b(?:tailored|adapted|adjusted|focused)\b.{0,120}\b(?:their|customer|prospect|specific|priority|situation)\b",)),
-        Criterion("tradeoffs", "addresses trade-offs honestly", (r"\b(?:trade-off|limitation|downside|risk|what it would not|not the best fit|costs more)\b",)),
-        Criterion("alignment", "checks customer alignment", (r"\b(?:does that align|how does that fit|would that solve|does that match|what do you think about)\b",)),
-        Criterion("ethical_claims", "avoids manipulative or misleading claims", (r"\b(?:I was transparent|I did not promise|I explained the limitation|I would not claim|only if it fits)\b",)),
-    ), _anchors("Persuasion", "does not connect an offer to the customer's situation", "asserts benefits without support or relevance", "explains a relevant value proposition", "tailors and supports value, addresses trade-offs honestly, and checks alignment")),
-    Competency("closing_ability", "Closing Ability", 15, (
-        Criterion("buying_signals", "recognizes buying signals", (r"\b(?:when they asked about (?:price|timing|implementation|next steps)|buying signal|showed interest in moving forward|asked about getting started)\b",)),
-        Criterion("commitment", "asks for commitment", (r"\b(?:asked for|ask for|requested)\b.{0,90}\b(?:commitment|decision|business|order|agreement|go-ahead)\b",)),
-        Criterion("next_step", "proposes a clear next step", (r"\b(?:next step|schedule a|book a|set up a|send the proposal|start a trial|implementation meeting)\b",)),
-        Criterion("hesitation", "responds constructively to hesitation", (r"\b(?:when they hesitated|if they were unsure|addressed their hesitation|asked what was holding them back)\b",)),
-        Criterion("timing", "confirms timing", (r"\b(?:by (?:when|date)|timeline|start date|this week|next month|when would you like)\b",)),
-        Criterion("ownership", "establishes ownership of the next action", (r"\b(?:I will send|I would send|I own|I will coordinate|I will follow up)\b.{0,100}\b(?:proposal|date|meeting|next step|customer|you)\b",)),
-        Criterion("follow_up", "confirms follow-up", (r"\b(?:confirmed a follow-up|scheduled a follow-up|follow up on|calendar invite|check back on)\b",)),
-        Criterion("advances", "appropriately advances the opportunity", (r"\b(?:advance to|move forward|begin implementation|start the trial|schedule the demo|send the agreement)\b",)),
-    ), _anchors("Closing Ability", "does not advance the opportunity or ask for a next step", "mentions follow-up but does not establish clear customer commitment", "proposes a clear, relevant next step", "recognizes a buying signal, seeks commitment, handles hesitation, and confirms ownership and timing")),
+    Competency("persuasion", "Competitor Differentiation", 15, (
+        Criterion("compares_fit", "compares solutions against the customer's stated needs", (r"\b(?:compare|comparison|compared|versus|competitor|alternative)\b.{0,160}\b(?:need|goal|fit|requirement|priority|customer|solution)\b",)),
+        Criterion("differentiates", "explains a relevant, specific difference", (r"\b(?:different|advantage|strength|unique|better fit|stand out)\b.{0,120}\b(?:solution|product|customer|need|competitor|alternative)\b",)),
+        Criterion("supports_difference", "supports differentiation with evidence", (r"\b(?:for example|case study|data|proof|result|reference|demonstrat)\w*\b",)),
+        Criterion("fair_comparison", "represents competitors fairly and honestly", (r"\b(?:fair|honest|accurate|would not criticize|not assume|acknowledge their strength)\b",)),
+        Criterion("checks_fit", "checks which solution best fits the customer", (r"\b(?:what matters most|how does that compare|which is more important|best fit|does that address)\b",)),
+    ), _anchors("Competitor Differentiation", "dismisses the competitor or makes unsupported claims", "lists features without linking them to customer priorities", "compares relevant strengths against customer needs", "uses a fair, evidence-based comparison and confirms fit with the customer's priorities")),
+    Competency("closing_ability", "Customer Retention", 15, (
+        Criterion("onboarding", "supports a smooth handoff or onboarding", (r"\b(?:onboard|implementation|handoff|welcome|setup|training)\w*\b",)),
+        Criterion("proactive_checkins", "sets proactive check-ins", (r"\b(?:check in|check-in|follow up|regular review|business review|touch base)\b",)),
+        Criterion("measure_outcomes", "tracks satisfaction or customer outcomes", (r"\b(?:satisfaction|success metric|outcome|adoption|usage|goal|results)\b",)),
+        Criterion("resolve_issues", "responds promptly to issues and feedback", (r"\b(?:resolve|address|escalate|feedback|issue|problem|concern)\w*\b",)),
+        Criterion("grow_relationship", "identifies relevant repeat or expansion opportunities", (r"\b(?:renew|repeat business|renewal|expand|upsell|cross-sell|additional need)\w*\b",)),
+        Criterion("personalized_service", "personalizes ongoing support to customer needs", (r"\b(?:personal|tailor|adapt|customer's priorities|their needs)\w*\b",)),
+    ), _anchors("Customer Retention", "does not describe post-sale relationship care", "relies on occasional contact without a customer success plan", "describes relevant follow-up and support", "combines onboarding, proactive reviews, outcome tracking, responsive service, and fit-based repeat business")),
 )
 
 COMPETENCY_BY_KEY = {competency.key: competency for competency in COMPETENCIES}
@@ -113,10 +102,13 @@ COMPETENCY_WEIGHTS = {competency.key: competency.weight for competency in COMPET
 
 # These rules classify question intent only; answer text never receives credit from a tag.
 QUESTION_TAG_PATTERNS: dict[str, tuple[str, ...]] = {
-    "objection_handling": (r"\b(?:objection|concern|push(?:ed)? back|rejected|reject|price objection|competitor)\b",),
+    "sales_knowledge": (
+        r"\b(?:price\s+(?:is\s+)?(?:too\s+)?(?:high|expensive)|too expensive|price objection|costs? too much|pricing)\b",
+        r"\b(?:sales process|sales cycle|pipeline|negotiat\w*|sales strategy|selling approach)\b",
+    ),
+    "objection_handling": (r"\b(?:objection\w*|concern\w*|push(?:ed)? back|rejected|reject)\b",),
     "lead_qualification": (r"\b(?:qualif\w*|discover|discovery|decision maker|stakeholder|budget|timeline|pain point|customer need|fit)\b",),
-    "closing_ability": (r"\b(?:clos\w*|commitment|buying signal|purchase|next step|agreement|ask for the sale|hesitat\w*)\b",),
-    "persuasion": (r"\b(?:persuad\w*|convinc\w*|influence|value proposition|explain the value|make the case|benefit)\b",),
-    "sales_knowledge": (r"\b(?:sales process|sales cycle|pipeline|negotiat\w*|sales strategy|selling approach)\b",),
-    "confidence": (r"\b(?:challeng\w*|disagre\w*|uncertain|mistake|failure|difficult feedback|pressure)\b",),
+    "closing_ability": (r"\b(?:after the sale|post.sale|repeat business|customer relationship|retain|retention|renewal|onboarding|customer success)\b",),
+    "persuasion": (r"\b(?:competitor|competing|alternative solution|choose our|convinc\w*|compare)\b",),
+    "confidence": (r"\b(?:challeng\w*|disagre\w*|uncertain|mistake|failure|difficult feedback|pressure|behind (?:on )?(?:my )?(?:sales )?target|sales target|quota|falling behind)\b",),
 }

@@ -11,6 +11,78 @@ from fastapi import HTTPException
 from datetime import datetime, timedelta, timezone
 
 
+def _run_alena_lifecycle_case(*, response=None, candidate_text=None, wait_error=None, timeout=False, stop_event=None):
+    from unittest.mock import patch
+    from app.services import elevenlabs_agent as agent
+    interview = SimpleNamespace(id=4, status="in_progress", position="Sales manager")
+    questions = [
+        SimpleNamespace(id=31, question_number=1, question="Resume question?", category="resume"),
+    ]
+
+    class Query:
+        def filter(self, *_args): return self
+        def first(self): return interview
+        def order_by(self, *_args): return self
+        def all(self): return questions
+
+    class FakeDB:
+        def query(self, _model): return Query()
+        def close(self): pass
+
+    class FakeAudio:
+        def __init__(self): self.stop_calls = 0
+        def stop(self): self.stop_calls += 1
+
+    class FakeConversation:
+        end_calls = 0
+        audio = None
+        def __init__(self, *_args, audio_interface=None, callback_agent_response=None,
+                     callback_user_transcript=None, **_kwargs):
+            FakeConversation.audio = audio_interface
+            FakeConversation.on_agent_response = callback_agent_response
+            FakeConversation.on_user_transcript = callback_user_transcript
+            FakeConversation.end_calls = 0
+        def start_session(self): pass
+        def wait_for_session_end(self):
+            if response is not None:
+                FakeConversation.on_agent_response(response)
+            if candidate_text is not None:
+                FakeConversation.on_user_transcript(candidate_text)
+            if wait_error is not None:
+                raise wait_error
+        def end_session(self):
+            FakeConversation.end_calls += 1
+            FakeConversation.audio.stop()
+
+    class FakeTimer:
+        instances = []
+        def __init__(self, _interval, function):
+            self.function = function
+            self.cancelled = False
+            self.instances.append(self)
+        def start(self):
+            if timeout: self.function()
+        def cancel(self): self.cancelled = True
+        def is_alive(self): return False
+        def join(self, timeout=None): pass
+
+    FakeTimer.instances = []
+    with patch.object(agent, "ELEVENLABS_API_KEY", "test-key"), \
+         patch.object(agent, "ELEVENLABS_AGENT_ID", "test-agent"), \
+         patch.object(agent, "SessionLocal", return_value=FakeDB()), \
+         patch.object(agent, "ElevenLabs"), \
+         patch.object(agent, "Conversation", FakeConversation), \
+         patch.object(agent, "MeetAudioInterface", side_effect=lambda *_args: FakeAudio()), \
+         patch.object(agent, "mark_completed") as completed, \
+         patch.object(agent, "mark_interrupted") as interrupted, \
+         patch.object(agent, "mark_failed") as failed, \
+         patch.object(agent, "save_transcript", return_value="transcript.txt"), \
+         patch.object(agent, "save_transcript_path"), \
+         patch.object(agent.threading, "Timer", FakeTimer):
+        result = agent.run_alena(4, stop_event)
+    return result, completed, interrupted, failed, FakeConversation, FakeTimer
+
+
 class InterviewExecutionTests(unittest.TestCase):
   def test_saved_questions_are_passed_in_persisted_order(self):
     questions = [
@@ -52,28 +124,111 @@ class InterviewExecutionTests(unittest.TestCase):
 
     class FakeConversation:
       config = None
-      def __init__(self, *_args, config=None, **_kwargs):
+      audio_interface = None
+      end_calls = 0
+      def __init__(self, *_args, config=None, audio_interface=None,
+                   callback_agent_response=None, **_kwargs):
         FakeConversation.config = config
+        FakeConversation.audio_interface = audio_interface
+        FakeConversation.callback_agent_response = callback_agent_response
+        FakeConversation.end_calls = 0
       def start_session(self):
         pass
       def wait_for_session_end(self):
-        pass
+        FakeConversation.callback_agent_response("The interview is now concluded.")
       def end_session(self):
-        pass
+        FakeConversation.end_calls += 1
+        FakeConversation.audio_interface.stop()
+
+    class FakeAudioInterface:
+      def __init__(self):
+        self.stopped = 0
+      def stop(self):
+        self.stopped += 1
 
     with patch.object(agent, "ELEVENLABS_API_KEY", "test-key"), \
          patch.object(agent, "ELEVENLABS_AGENT_ID", "test-agent"), \
          patch.object(agent, "SessionLocal", return_value=FakeDB()), \
          patch.object(agent, "ElevenLabs"), \
          patch.object(agent, "Conversation", FakeConversation), \
-         patch.object(agent, "MeetAudioInterface", return_value=object()), \
+         patch.object(agent, "MeetAudioInterface", return_value=FakeAudioInterface()), \
          patch.object(agent, "mark_completed"), \
          patch.object(agent, "save_transcript", return_value="transcript.txt"), \
          patch.object(agent, "save_transcript_path"):
       result = agent.run_alena(4)
     self.assertEqual(result["status"], "completed")
+    self.assertEqual(FakeConversation.end_calls, 1)
+    self.assertEqual(FakeConversation.audio_interface.stopped, 1)
     self.assertEqual(FakeConversation.config.dynamic_variables["interview_questions"], "1. Resume question?\n2. Role question?")
     self.assertEqual([question["id"] for question in json.loads(FakeConversation.config.dynamic_variables["interview_question_plan"])], [31, 32])
+
+  def test_unexpected_elevenlabs_disconnect_is_interrupted(self):
+    result, completed, interrupted, failed, _, _ = _run_alena_lifecycle_case()
+    self.assertEqual(result["status"], "interrupted")
+    completed.assert_not_called()
+    interrupted.assert_called_once()
+    failed.assert_not_called()
+
+  def test_candidate_request_to_stop_is_interrupted_not_completed(self):
+    result, completed, interrupted, failed, _, _ = _run_alena_lifecycle_case(
+        candidate_text="I want to stop the interview."
+    )
+    self.assertEqual(result["status"], "interrupted")
+    completed.assert_not_called()
+    interrupted.assert_called_once()
+    failed.assert_not_called()
+
+  def test_genuine_session_exception_is_failed_with_diagnostic(self):
+    result, completed, interrupted, failed, _, _ = _run_alena_lifecycle_case(
+        wait_error=ConnectionError("websocket dropped unexpectedly")
+    )
+    self.assertEqual(result["status"], "failed")
+    self.assertIn("websocket dropped unexpectedly", result["error"])
+    completed.assert_not_called()
+    interrupted.assert_not_called()
+    failed.assert_called_once()
+
+  def test_timeout_is_interrupted_and_timer_cleanup_runs(self):
+    result, completed, interrupted, failed, conversation, timers = _run_alena_lifecycle_case(
+        timeout=True
+    )
+    self.assertEqual(result["status"], "interrupted")
+    completed.assert_not_called()
+    interrupted.assert_called_once()
+    failed.assert_not_called()
+    self.assertTrue(timers.instances[0].cancelled)
+    self.assertEqual(conversation.end_calls, 1)
+    self.assertEqual(conversation.audio.stop_calls, 1)
+
+  def test_verified_completion_signal_wins_timeout_race(self):
+    result, completed, interrupted, failed, conversation, _ = _run_alena_lifecycle_case(
+        response="The interview is now concluded.",
+        timeout=True,
+    )
+    self.assertEqual(result["status"], "completed")
+    completed.assert_called_once()
+    interrupted.assert_not_called()
+    failed.assert_not_called()
+    self.assertEqual(conversation.end_calls, 1)
+
+  def test_manual_meet_mute_or_unmute_does_not_end_session(self):
+    stop_event = __import__("threading").Event()
+    result, completed, interrupted, failed, _, _ = _run_alena_lifecycle_case(
+        stop_event=stop_event
+    )
+    self.assertEqual(result["status"], "interrupted")
+    self.assertFalse(stop_event.is_set())
+    completed.assert_not_called()
+    interrupted.assert_called_once()
+    failed.assert_not_called()
+
+  def test_unexpected_return_cleans_audio_and_cancels_timer(self):
+    result, _, interrupted, _, conversation, timers = _run_alena_lifecycle_case()
+    self.assertEqual(result["status"], "interrupted")
+    interrupted.assert_called_once()
+    self.assertTrue(timers.instances[0].cancelled)
+    self.assertEqual(conversation.end_calls, 1)
+    self.assertEqual(conversation.audio.stop_calls, 1)
 
 
   def test_missing_saved_questions_fail_clearly(self):
@@ -164,6 +319,26 @@ class InterviewExecutionTests(unittest.TestCase):
     self.assertFalse(claim_scheduled_interview(db, 8))
     self.assertEqual(db.commits, 2)
 
+  def test_status_compare_and_set_does_not_overwrite_concurrent_final_state(self):
+    from app.services.scheduler import compare_and_set_interview_status
+    db = _FakeDB(result=0)
+    self.assertFalse(
+        compare_and_set_interview_status(db, 8, "in_progress", "interrupted")
+    )
+    self.assertEqual(db.commits, 0)
+
+  def test_alena_status_transition_does_not_commit_after_concurrent_change(self):
+    from unittest.mock import Mock, patch
+    from app.services import elevenlabs_agent as agent
+    db = Mock()
+    query = db.query.return_value
+    query.filter.return_value.first.return_value = SimpleNamespace(status="in_progress")
+    query.filter.return_value.update.return_value = 0
+    with patch.object(agent, "SessionLocal", return_value=db):
+      changed = agent._transition_interview_status(4, "completed", "test completion")
+    self.assertFalse(changed)
+    db.commit.assert_not_called()
+
   def test_scheduler_does_not_launch_in_progress_or_terminal_interviews(self):
     from app.services.scheduler import claim_scheduled_interview
     for status in ("in_progress", "completed", "cancelled", "failed"):
@@ -214,6 +389,9 @@ class _StaleQuery:
 
     def all(self):
         return self.rows
+
+    def update(self, *_args, **_kwargs):
+        return 1
 
 
 def load_tests(loader, tests, pattern):

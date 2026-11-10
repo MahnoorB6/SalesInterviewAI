@@ -117,12 +117,14 @@ class BehavioralRubricEvaluationEngine(EvaluationEngine):
                 "question_id": question["id"],
                 "question_order": question["order"],
                 "question": question["text"],
+                "interviewer_speech": prompt_turn["text"] if prompt_turn else question["text"],
                 "candidate_answer": answer["candidate_text"],
                 "transcript_turn_references": answer["turn_references"],
                 "answer_completeness": answer["completeness"],
                 "relevant_competencies": relevant,
                 "score": question_score,
                 "score_scale": "1_to_5",
+                "score_rationale": _question_rationale(question_score, question_evidence, all_missing, bool(answer["candidate_text"])),
                 "evidence": question_evidence,
                 "strengths": [
                     _evidence_statement(item, item["competency"])
@@ -215,11 +217,40 @@ class BehavioralRubricEvaluationEngine(EvaluationEngine):
 
 
 def _tag_question(text: str) -> list[str]:
-    tags = ["communication"]
+    # Only score the seven agreed sales prompts. Introductory and closing
+    # small talk remains visible in the report but is not treated as a rubric item.
+    tags: list[str] = []
+    if re.search(r"\b(?:cold call|cold calling|never heard of (?:your|the) company)\b", text, re.IGNORECASE):
+        tags.append("communication")
     for key, patterns in QUESTION_TAG_PATTERNS.items():
         if any(re.search(pattern, text, re.IGNORECASE) for pattern in patterns):
             tags.append(key)
     return tags
+
+
+def _question_rationale(score: int | None, evidence: list[dict[str, Any]], missing: list[str], answered: bool) -> str:
+    if not answered:
+        return "No candidate answer was aligned to this question, so it was not scored."
+    if score is None:
+        return "This prompt is outside the seven-question sales rubric, so it was not scored."
+    demonstrated = list(dict.fromkeys(
+        item["criterion_label"] for item in evidence
+        if item["assessment"] == "demonstrated"
+    ))
+    partial = list(dict.fromkeys(
+        item["criterion_label"] for item in evidence
+        if item["assessment"] == "partially_demonstrated"
+    ))
+    parts = [f"{score}/5: "]
+    if demonstrated:
+        parts.append("demonstrated " + ", ".join(demonstrated))
+    if partial:
+        parts.append(("; " if demonstrated else "") + "partially demonstrated " + ", ".join(partial))
+    if missing:
+        parts.append(("; " if demonstrated or partial else "") + "not evidenced: " + ", ".join(missing))
+    if not demonstrated and not partial and not missing:
+        return f"{score}/5 based on the available answer evidence."
+    return "".join(parts) + "."
 
 
 def _parse_speaker_turns(transcript: str) -> list[dict[str, Any]]:
@@ -229,7 +260,9 @@ def _parse_speaker_turns(transcript: str) -> list[dict[str, Any]]:
     }
     turns: list[dict[str, Any]] = []
     current: dict[str, Any] | None = None
-    label = re.compile(r"^\s*([A-Za-z][A-Za-z _-]{0,30})\s*:\s*(.*)$")
+    label = re.compile(
+        r"^\s*(?:\[[^\]]+\]\s*)?([A-Za-z][A-Za-z _-]{0,30})\s*:\s*(.*)$"
+    )
     for line in transcript.splitlines():
         match = label.match(line)
         if match:
@@ -238,7 +271,7 @@ def _parse_speaker_turns(transcript: str) -> list[dict[str, Any]]:
                 turns.append(current)
             raw_role = re.sub(r"[_-]+", " ", match.group(1)).strip().lower()
             speaker = roles.get(raw_role, "unknown")
-            current = {"turn_index": len(turns), "speaker": speaker, "text": match.group(2).strip()}
+            current = {"turn_index": len(turns), "speaker": speaker, "speaker_label": raw_role, "text": match.group(2).strip()}
         elif current and line.strip():
             current["text"] += " " + line.strip()
         elif line.strip():
@@ -247,6 +280,19 @@ def _parse_speaker_turns(transcript: str) -> list[dict[str, Any]]:
     if current and current["text"].strip():
         current["text"] = current["text"].strip()
         turns.append(current)
+    # Transcripts sometimes use the candidate's actual name (for example,
+    # "Bilal:") instead of the generic "Candidate:" label. When Alena is
+    # identified and there is exactly one other labeled speaker, treat that
+    # speaker as the candidate so their words are attached to Alena's prompt.
+    unknown_labels = {
+        turn.get("speaker_label") for turn in turns
+        if turn["speaker"] == "unknown" and turn.get("speaker_label")
+    }
+    if any(turn["speaker"] == "interviewer" for turn in turns) and len(unknown_labels) == 1:
+        candidate_label = next(iter(unknown_labels))
+        for turn in turns:
+            if turn.get("speaker_label") == candidate_label and turn["speaker"] == "unknown":
+                turn["speaker"] = "candidate"
     for index, turn in enumerate(turns):
         turn["turn_index"] = index
     return turns
@@ -255,19 +301,12 @@ def _parse_speaker_turns(transcript: str) -> list[dict[str, Any]]:
 def _align_question_turns(questions: list[dict[str, Any]], prompts: list[dict[str, Any]]) -> tuple[dict[Any, dict[str, Any]], float]:
     if not prompts:
         return {}, 0.0
-    if len(prompts) <= len(questions):
-        aligned = list(zip(questions, prompts))
-        similarities = [
-            SequenceMatcher(None, _normalize(prompt["text"]), _normalize(question["text"])).ratio()
-            for question, prompt in aligned
-        ]
-        text_match = sum(similarities) / len(similarities) if similarities else 0.0
-        quality = (0.95 if len(prompts) == len(questions) else 0.72) if text_match >= 0.35 else 0.58
-        return {question["id"]: prompt for question, prompt in zip(questions, prompts)}, quality
-    # Extra spoken prompts often include follow-ups. Map only high-overlap prompts;
-    # ambiguous turns remain unassigned rather than shifting every later answer.
+    # Match by prompt wording and order, whether the transcript has extra
+    # introductory/follow-up turns or is missing some questions. Positional zip
+    # alone can incorrectly attach every answer to the next question.
     mapped: dict[Any, dict[str, Any]] = {}
     last_order = -1
+    similarities: list[float] = []
     for prompt in prompts:
         candidates = []
         for index, question in enumerate(questions):
@@ -277,10 +316,15 @@ def _align_question_turns(questions: list[dict[str, Any]], prompts: list[dict[st
             candidates.append((similarity, index, question))
         if candidates:
             similarity, index, question = max(candidates, key=lambda item: item[0])
-            if similarity >= 0.48:
+            if similarity >= 0.40:
                 mapped[question["id"]] = prompt
                 last_order = index
-    return mapped, 0.55 if mapped else 0.0
+                similarities.append(similarity)
+    if not mapped:
+        return {}, 0.0
+    coverage = len(mapped) / max(len(questions), 1)
+    text_quality = sum(similarities) / len(similarities)
+    return mapped, round(min(0.98, 0.45 + 0.35 * coverage + 0.18 * text_quality), 2)
 
 
 def _normalize(text: str) -> str:

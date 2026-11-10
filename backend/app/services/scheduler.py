@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -8,6 +9,17 @@ from app.models.interview import Interview
 from app.statuses import InterviewStatus, can_transition_interview
 from app.services.meet_bot import run_meet_bot
 from app.transcripts import set_structured_transcript_state
+from app.logging_config import (
+    configure_backend_logging,
+    reset_interview_context,
+    set_interview_context,
+    set_interview_stage,
+)
+
+
+configure_backend_logging()
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 # ============================================================
@@ -18,22 +30,21 @@ from app.transcripts import set_structured_transcript_state
 # until the exact interview time before starting Chrome.
 CHECK_INTERVAL_SECONDS = 2
 
-# Start Playwright this many seconds BEFORE the scheduled
-# interview time.
+# Start Playwright early enough to load the browser and Meet
+# pre-join screen. The Meet Join button is held until scheduled_at.
 #
 # This gives Chrome / Google Meet time to:
 #
 #   1. Launch
 #   2. Open the Meet URL
 #   3. Load the Meet UI
-#   4. Join the meeting
-#   5. Enable Live Captions
-#   6. Prepare the audio devices
+#   4. Wait at the pre-join screen for scheduled_at
+#   5. Join at the scheduled time, then prepare audio
 #
 # Alena should NOT be started by the scheduler itself.
 # run_meet_bot() is responsible for starting Alena after
 # the Meet side is ready.
-PREPARE_BEFORE_SECONDS = 15
+PREPARE_BEFORE_SECONDS = 30
 
 TIMEZONE = ZoneInfo("Asia/Karachi")
 
@@ -67,7 +78,37 @@ def claim_scheduled_interview(db, interview_id: int) -> bool:
         )
     )
     db.commit()
+    if claimed:
+        logger.info(
+            "Interview status transition previous=%s new=%s reason=scheduler claimed scheduled interview origin=claim_scheduled_interview",
+            InterviewStatus.SCHEDULED.value,
+            InterviewStatus.IN_PROGRESS.value,
+            extra={"interview_id": interview_id, "stage": "status_claim"},
+        )
     return claimed == 1
+
+
+def compare_and_set_interview_status(
+    db,
+    interview_id: int,
+    expected_status: str,
+    target_status: str,
+) -> bool:
+    """Commit a status transition only if no concurrent path changed it."""
+    changed = (
+        db.query(Interview)
+        .filter(
+            Interview.id == interview_id,
+            Interview.status == expected_status,
+        )
+        .update(
+            {Interview.status: target_status},
+            synchronize_session=False,
+        )
+    )
+    if changed:
+        db.commit()
+    return changed == 1
 
 
 def fail_stale_interviews(db, now=None) -> list[int]:
@@ -83,14 +124,26 @@ def fail_stale_interviews(db, now=None) -> list[int]:
         if scheduled and scheduled.tzinfo is None:
             scheduled = scheduled.replace(tzinfo=TIMEZONE)
         if scheduled and scheduled.astimezone(timezone.utc) < stale_before:
+            previous_status = interview.status
+            if not compare_and_set_interview_status(
+                db,
+                interview.id,
+                InterviewStatus.IN_PROGRESS.value,
+                InterviewStatus.FAILED.value,
+            ):
+                continue
+            logger.warning(
+                "Interview status transition previous=%s new=%s reason=stale in-progress interview recovery threshold exceeded origin=fail_stale_interviews",
+                previous_status,
+                InterviewStatus.FAILED.value,
+                extra={"interview_id": interview.id, "stage": "stale_recovery"},
+            )
             interview.status = InterviewStatus.FAILED.value
             failed_ids.append(interview.id)
             try:
                 set_structured_transcript_state(interview, InterviewStatus.FAILED.value)
             except (OSError, ValueError, json.JSONDecodeError) as transcript_error:
                 print(f"[SCHEDULER] Could not finalize stale transcript #{interview.id}: {type(transcript_error).__name__}")
-    if failed_ids:
-        db.commit()
     return failed_ids
 
 
@@ -101,6 +154,7 @@ def fail_stale_interviews(db, now=None) -> list[int]:
 def run_playwright_in_proactor_thread(
     meet_link: str,
     interview_id: int,
+    scheduled_at: datetime | None = None,
 ):
     """
     Run the Playwright Meet bot inside a dedicated Windows
@@ -164,6 +218,7 @@ def run_playwright_in_proactor_thread(
             run_meet_bot(
                 meet_link=meet_link,
                 interview_id=interview_id,
+                scheduled_at=scheduled_at,
             )
         )
 
@@ -205,11 +260,27 @@ def run_playwright_in_proactor_thread(
                 pass
 
             try:
+                # run_meet_bot may use asyncio.to_thread while Playwright is
+                # active. Wait for any remaining default-executor workers
+                # before closing the event loop they may still depend on.
+                loop.run_until_complete(
+                    loop.shutdown_default_executor()
+                )
+
+            except Exception as cleanup_error:
+                print(
+                    "[PLAYWRIGHT THREAD] Default executor shutdown failed: "
+                    f"{type(cleanup_error).__name__}: {cleanup_error}"
+                )
+
+            try:
 
                 loop.close()
 
             except Exception:
                 pass
+
+            asyncio.set_event_loop(None)
 
         print(
             "[PLAYWRIGHT THREAD] "
@@ -280,6 +351,9 @@ async def run_scheduled_interview(
         Alena/transcript code controls final status
     """
 
+    log_context = set_interview_context(interview_id, "scheduler_start")
+    stage = "load_interview"
+
     print()
     print("=" * 70)
     print(
@@ -315,20 +389,41 @@ async def run_scheduled_interview(
 
             return {"outcome": "skipped", "status": None}
 
+        scheduled_at = interview.scheduled_at
+        if scheduled_at is not None:
+            scheduled_at = (
+                scheduled_at.replace(tzinfo=TIMEZONE)
+                if scheduled_at.tzinfo is None
+                else scheduled_at.astimezone(TIMEZONE)
+            )
+
         # ----------------------------------------------------
         # VERIFY MEET LINK
         # ----------------------------------------------------
 
         if not meet_link:
+            stage = "validate_meet_link"
+            set_interview_stage(stage)
+            previous_status = interview.status
+            logger.error(
+                "Interview status transition previous=%s new=%s reason=missing Meet link origin=run_scheduled_interview",
+                previous_status,
+                InterviewStatus.FAILED.value,
+                extra={"interview_id": interview_id, "stage": "validate_meet_link"},
+            )
 
             print(
                 f"[SCHEDULER] Interview #{interview_id} "
                 "does not have a Meet link."
             )
 
-            interview.status = InterviewStatus.FAILED.value
-
-            db.commit()
+            if compare_and_set_interview_status(
+                db,
+                interview_id,
+                previous_status,
+                InterviewStatus.FAILED.value,
+            ):
+                interview.status = InterviewStatus.FAILED.value
 
             return {
                 "outcome": "handled_failure",
@@ -386,16 +481,21 @@ async def run_scheduled_interview(
         print("=" * 70)
         print()
 
+        stage = "run_meet_bot"
+        set_interview_stage(stage)
         await asyncio.to_thread(
             run_playwright_in_proactor_thread,
             meet_link,
             interview_id,
+            scheduled_at,
         )
 
         # ----------------------------------------------------
         # RELOAD INTERVIEW
         # ----------------------------------------------------
 
+        stage = "reload_final_status"
+        set_interview_stage(stage)
         db.expire_all()
 
         interview = (
@@ -451,16 +551,25 @@ async def run_scheduled_interview(
             # If the Meet bot returned without the Alena flow
             # updating the status, do NOT falsely report a
             # successful completed interview.
-            print(
-                f"[SCHEDULER WARNING] "
-                f"Interview #{interview_id} "
-                "returned while still IN_PROGRESS."
+            logger.warning(
+                "Meet/Alena flow returned without a final status; marking interrupted",
+                extra={"interview_id": interview_id, "stage": "reload_final_status"},
             )
-
             print(
-                "[SCHEDULER WARNING] "
-                "The Meet/Alena flow exited before "
-                "setting a final interview status."
+                f"[SCHEDULER WARNING] Interview #{interview_id} returned "
+                "without a final status; marking it INTERRUPTED."
+            )
+            compare_and_set_interview_status(
+                db,
+                interview_id,
+                InterviewStatus.IN_PROGRESS.value,
+                InterviewStatus.INTERRUPTED.value,
+            )
+            db.expire_all()
+            interview = (
+                db.query(Interview)
+                .filter(Interview.id == interview_id)
+                .first()
             )
 
         else:
@@ -473,7 +582,37 @@ async def run_scheduled_interview(
 
         return {"outcome": "finished", "status": interview.status}
 
+    except asyncio.CancelledError:
+        logger.warning(
+            "Scheduler task cancelled during interview execution",
+            extra={"interview_id": interview_id, "stage": stage},
+        )
+        try:
+            interview = (
+                db.query(Interview)
+                .filter(Interview.id == interview_id)
+                .first()
+            )
+            if interview and interview.status == InterviewStatus.IN_PROGRESS.value:
+                compare_and_set_interview_status(
+                    db,
+                    interview_id,
+                    InterviewStatus.IN_PROGRESS.value,
+                    InterviewStatus.INTERRUPTED.value,
+                )
+        except Exception:
+            logger.exception(
+                "Could not persist interrupted status after task cancellation",
+                extra={"interview_id": interview_id, "stage": "status_persistence"},
+            )
+        raise
+
     except Exception as error:
+        logger.exception(
+            "Exception escaped interview execution; current scheduler stage=%s",
+            stage,
+            extra={"interview_id": interview_id, "stage": stage},
+        )
 
         print()
         print("=" * 70)
@@ -498,8 +637,26 @@ async def run_scheduled_interview(
                     if can_transition_interview(
                         interview.status, InterviewStatus.FAILED.value
                     ):
-                        interview.status = InterviewStatus.FAILED.value
-                        db.commit()
+                        previous_status = interview.status
+                        if compare_and_set_interview_status(
+                            db,
+                            interview_id,
+                            previous_status,
+                            InterviewStatus.FAILED.value,
+                        ):
+                            logger.error(
+                                "Interview status transition previous=%s new=%s reason=scheduler execution exception (%s) origin=run_scheduled_interview",
+                                previous_status,
+                                InterviewStatus.FAILED.value,
+                                type(error).__name__,
+                                extra={"interview_id": interview_id, "stage": "status_update"},
+                            )
+                    db.expire_all()
+                    interview = (
+                        db.query(Interview)
+                        .filter(Interview.id == interview_id)
+                        .first()
+                    )
                 persisted_status = interview.status
                 print(
                     f"[SCHEDULER] Interview #{interview_id} "
@@ -507,6 +664,10 @@ async def run_scheduled_interview(
                     f"{type(error).__name__}: {error}"
                 )
         except Exception as db_error:
+            logger.exception(
+                "Scheduler status persistence exception after original execution error",
+                extra={"interview_id": interview_id, "stage": "status_persistence"},
+            )
             print(
                 "[SCHEDULER] Database update failed: "
                 f"{type(db_error).__name__}: {db_error}"
@@ -531,6 +692,8 @@ async def run_scheduled_interview(
             active_interviews.discard(
                 interview_id
             )
+
+        reset_interview_context(log_context)
 
         print(
             f"[SCHEDULER] Task finished for "
